@@ -1,14 +1,37 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { getStocks, getCrypto } from '../services/api';
+
+/* ---------------- utils ---------------- */
+
+const useDebounce = (value, delay = 300) => {
+  const [debounced, setDebounced] = useState(value);
+
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(id);
+  }, [value, delay]);
+
+  return debounced;
+};
+
+/* ---------------- component ---------------- */
 
 const Assets = () => {
   const [stocks, setStocks] = useState([]);
   const [crypto, setCrypto] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
   const [filter, setFilter] = useState('all');
   const [sortField, setSortField] = useState(null);
   const [sortOrder, setSortOrder] = useState('asc');
+
+  const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search);
+
+  const [selectedAsset, setSelectedAsset] = useState(null);
+
+  /* ---------------- data fetch ---------------- */
 
   useEffect(() => {
     const fetchData = async () => {
@@ -27,7 +50,10 @@ const Assets = () => {
     fetchData();
   }, []);
 
-  const getChangeColor = (value) => (value >= 0 ? 'text-green-600' : 'text-red-600');
+  /* ---------------- helpers ---------------- */
+
+  const getChangeColor = (value) =>
+    value >= 0 ? 'text-green-600' : 'text-red-600';
 
   const handleSort = (field) => {
     if (sortField === field) {
@@ -38,11 +64,35 @@ const Assets = () => {
     }
   };
 
-  const filteredAssets = (() => {
-    let assets;
-    if (filter === 'stocks') assets = stocks;
-    else if (filter === 'crypto') assets = crypto;
-    else assets = [...stocks, ...crypto];
+  const getSortIcon = (field) => {
+    if (sortField !== field) return '↕️';
+    return sortOrder === 'asc' ? '⬆️' : '⬇️';
+  };
+
+  /* ---------------- derived data ---------------- */
+
+  const filteredAssets = useMemo(() => {
+    let assets = [];
+
+    if (filter === 'stocks') {
+      assets = stocks.map(a => ({ ...a, __type: 'Stock' }));
+    } else if (filter === 'crypto') {
+      assets = crypto.map(a => ({ ...a, __type: 'Crypto' }));
+    } else {
+      assets = [
+        ...stocks.map(a => ({ ...a, __type: 'Stock' })),
+        ...crypto.map(a => ({ ...a, __type: 'Crypto' })),
+      ];
+    }
+
+    if (debouncedSearch) {
+      const q = debouncedSearch.toLowerCase();
+      assets = assets.filter(
+        a =>
+          a.symbol?.toLowerCase().includes(q) ||
+          a.name?.toLowerCase().includes(q)
+      );
+    }
 
     if (sortField) {
       assets = [...assets].sort((a, b) => {
@@ -54,6 +104,7 @@ const Assets = () => {
             ? aVal.localeCompare(bVal)
             : bVal.localeCompare(aVal);
         }
+
         return sortOrder === 'asc'
           ? (aVal ?? 0) - (bVal ?? 0)
           : (bVal ?? 0) - (aVal ?? 0);
@@ -61,100 +112,159 @@ const Assets = () => {
     }
 
     return assets;
-  })();
+  }, [stocks, crypto, filter, debouncedSearch, sortField, sortOrder]);
+
+  /* ---------------- modal behavior ---------------- */
+
+  useEffect(() => {
+    if (!selectedAsset) return;
+
+    const onKey = (e) => {
+      if (e.key === 'Escape') setSelectedAsset(null);
+    };
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', onKey);
+
+    return () => {
+      document.body.style.overflow = '';
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [selectedAsset]);
+
+  /* ---------------- render ---------------- */
 
   if (loading) return <p>Loading assets...</p>;
   if (error) return <p>{error}</p>;
 
-  const getSortIcon = (field) => {
-    if (sortField !== field) return '↕️';
-    return sortOrder === 'asc' ? '⬆️' : '⬇️';
-  };
-
   return (
     <div className="w-full max-w-full p-4 md:p-6 space-y-6">
-      <h1 className="text-3xl font-bold mb-4">Assets</h1>
+      <h1 className="text-3xl font-bold">Assets</h1>
 
-      {/* Filter buttons */}
-      <div className="flex gap-2 mb-4 transition-all duration-300">
-        {['all', 'stocks', 'crypto'].map((f) => (
+      {/* Search */}
+      <input
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        placeholder="Search by symbol or name…"
+        className="w-full md:w-1/3 px-3 py-2 border rounded-lg"
+      />
+
+      {/* Filters */}
+      <div className="flex gap-2">
+        {['all', 'stocks', 'crypto'].map(f => (
           <button
             key={f}
             onClick={() => setFilter(f)}
-            className={`flex-1 min-w-0 px-3 sm:px-4 py-2 rounded-lg font-medium transition-colors duration-300 truncate whitespace-nowrap
-              ${filter === f ? 'bg-blue-500 text-white shadow-md' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}
-            `}
+            className={`px-4 py-2 rounded-lg font-medium ${
+              filter === f
+                ? 'bg-blue-500 text-white'
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
           >
-            {f === 'all' ? 'All' : f === 'stocks' ? 'Stocks Only' : 'Crypto Only'}
+            {f === 'all' ? 'All' : f === 'stocks' ? 'Stocks' : 'Crypto'}
           </button>
         ))}
       </div>
 
-      {/* Table Wrapper */}
-      <div className="overflow-x-auto w-full shadow-sm rounded-md scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 scroll-smooth">
-        <table className="min-w-[600px] w-full table-auto bg-white divide-y divide-gray-200">
-          <thead className="bg-gray-100 sticky top-0 shadow-md z-10">
+      {/* Table */}
+      <div className="overflow-x-auto rounded-md shadow">
+        <table className="min-w-[700px] w-full bg-white divide-y">
+          <thead className="bg-gray-100 sticky top-0">
             <tr>
-              <th
-                className="px-4 py-2 text-left font-medium cursor-pointer select-none whitespace-nowrap"
-                onClick={() => handleSort('symbol')}
-              >
-                Symbol <span className="ml-1">{getSortIcon('symbol')}</span>
-              </th>
-              <th
-                className="px-4 py-2 text-left font-medium cursor-pointer select-none whitespace-nowrap"
-                onClick={() => handleSort('name')}
-              >
-                Name <span className="ml-1">{getSortIcon('name')}</span>
-              </th>
-              <th
-                className="px-4 py-2 text-right font-medium cursor-pointer select-none whitespace-nowrap"
-                onClick={() => handleSort('currentPrice')}
-              >
-                Price <span className="ml-1">{getSortIcon('currentPrice')}</span>
-              </th>
-              <th
-                className="px-4 py-2 text-right font-medium cursor-pointer select-none whitespace-nowrap"
-                onClick={() => handleSort('changePercent')}
-              >
-                Change % <span className="ml-1">{getSortIcon('changePercent')}</span>
-              </th>
-              <th
-                className="px-4 py-2 text-right font-medium cursor-pointer select-none whitespace-nowrap"
-                onClick={() => handleSort('volume')}
-              >
-                Volume <span className="ml-1">{getSortIcon('volume')}</span>
-              </th>
+              {[
+                ['symbol', 'Symbol'],
+                ['name', 'Name'],
+                ['currentPrice', 'Price'],
+                ['changePercent', 'Change %'],
+                ['volume', 'Volume'],
+              ].map(([field, label]) => (
+                <th
+                  key={field}
+                  onClick={() => handleSort(field)}
+                  className="px-4 py-2 cursor-pointer text-left"
+                >
+                  {label} <span>{getSortIcon(field)}</span>
+                </th>
+              ))}
+              <th className="px-4 py-2">Type</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
-            {filteredAssets.map((asset) => (
-              <tr key={asset.id} className="hover:bg-gray-50 transition-colors cursor-pointer">
+          <tbody>
+            {filteredAssets.map(asset => (
+              <tr
+                key={`${asset.__type}-${asset.id}`}
+                onClick={() => setSelectedAsset(asset)}
+                className="hover:bg-gray-50 cursor-pointer"
+              >
                 <td className="px-4 py-2 font-medium">{asset.symbol}</td>
-                <td className="px-4 py-2 truncate">{asset.name}</td>
+                <td className="px-4 py-2">{asset.name}</td>
                 <td className="px-4 py-2 text-right">
-                  {asset.currentPrice !== undefined
-                    ? `$${asset.currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+                  {asset.currentPrice
+                    ? `$${asset.currentPrice.toLocaleString()}`
                     : '—'}
                 </td>
-                <td className={`px-4 py-2 text-right ${getChangeColor(asset.changePercent ?? 0)}`}>
-                  {asset.changePercent !== undefined ? asset.changePercent.toFixed(2) + '%' : '—'}
+                <td
+                  className={`px-4 py-2 text-right ${getChangeColor(
+                    asset.changePercent ?? 0
+                  )}`}
+                >
+                  {asset.changePercent?.toFixed(2) ?? '—'}%
                 </td>
                 <td className="px-4 py-2 text-right">
-                  {asset.volume !== undefined ? asset.volume.toLocaleString() : '—'}
+                  {asset.volume?.toLocaleString() ?? '—'}
+                </td>
+                <td className="px-4 py-2">
+                  <span
+                    className={`px-2 py-1 text-xs rounded ${
+                      asset.__type === 'Stock'
+                        ? 'bg-green-200'
+                        : 'bg-purple-200'
+                    }`}
+                  >
+                    {asset.__type}
+                  </span>
                 </td>
               </tr>
             ))}
             {filteredAssets.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-2 text-center text-gray-500">
-                  No assets to display
+                <td colSpan={6} className="text-center py-4 text-gray-500">
+                  No assets found
                 </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
+
+      {/* Modal */}
+      {selectedAsset && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+          onClick={() => setSelectedAsset(null)}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            className="bg-white rounded-lg p-6 w-full max-w-md space-y-3"
+          >
+            <h2 className="text-xl font-bold">
+              {selectedAsset.name} ({selectedAsset.symbol})
+            </h2>
+
+            <p>Type: {selectedAsset.__type}</p>
+            <p>Price: ${selectedAsset.currentPrice}</p>
+            <p>Change: {selectedAsset.changePercent?.toFixed(2)}%</p>
+            <p>Volume: {selectedAsset.volume?.toLocaleString()}</p>
+
+            <button
+              onClick={() => setSelectedAsset(null)}
+              className="mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
