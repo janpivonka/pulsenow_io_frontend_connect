@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
-import { getDashboard } from '../services/api';
+import { getDashboard, getStocks, getCrypto } from '../services/api';
+import Modal from '../components/Modal';
 
 const Dashboard = () => {
   const [data, setData] = useState(null);
+  const [stocks, setStocks] = useState([]);
+  const [crypto, setCrypto] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -12,8 +15,15 @@ const Dashboard = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await getDashboard();
-        setData(res.data.data);
+        const [dashboardRes, stocksRes, cryptoRes] = await Promise.all([
+          getDashboard(),
+          getStocks(),
+          getCrypto()
+        ]);
+
+        setData(dashboardRes.data.data ?? null);
+        setStocks(stocksRes.data ?? []);
+        setCrypto(cryptoRes.data ?? []);
       } catch (err) {
         console.error('Error fetching dashboard:', err);
         setError('Failed to load dashboard data.');
@@ -27,7 +37,7 @@ const Dashboard = () => {
   useEffect(() => {
     if (!selectedItem) return;
     document.body.style.overflow = 'hidden';
-    const onKey = (e) => { if (e.key === 'Escape') setSelectedItem(null); };
+    const onKey = e => { if (e.key === 'Escape') setSelectedItem(null); };
     window.addEventListener('keydown', onKey);
     return () => {
       document.body.style.overflow = '';
@@ -57,10 +67,33 @@ const Dashboard = () => {
   const getArrowSymbol = (value) => (value >= 0 ? '▲' : '▼');
 
   const portfolio = data?.portfolio;
-  const trackedAssets = portfolio?.watchlist ?? [];
-  const recentNews = data?.recentNews ?? [];
-  const topGainers = data?.topGainers ?? [];
-  const topLosers = data?.topLosers ?? [];
+
+  // --- Assign correct __type for topGainers/topLosers ---
+  const topGainers = (data?.topGainers ?? []).map(item => {
+    const foundStock = stocks.find(s => s.id === item.id || s.symbol === item.symbol);
+    if (foundStock) return { ...item, __type: 'Stock' };
+    const foundCrypto = crypto.find(c => c.id === item.id || c.symbol === item.symbol);
+    if (foundCrypto) return { ...item, __type: 'Crypto' };
+    return { ...item, __type: 'Stock' }; // fallback
+  });
+
+  const topLosers = (data?.topLosers ?? []).map(item => {
+    const foundStock = stocks.find(s => s.id === item.id || s.symbol === item.symbol);
+    if (foundStock) return { ...item, __type: 'Stock' };
+    const foundCrypto = crypto.find(c => c.id === item.id || c.symbol === item.symbol);
+    if (foundCrypto) return { ...item, __type: 'Crypto' };
+    return { ...item, __type: 'Stock' };
+  });
+
+  const trackedAssets = (portfolio?.watchlist ?? [])
+    .map(sym => {
+      const stock = stocks.find(s => s.symbol === sym);
+      if (stock) return { ...stock, __type: 'Stock' };
+      const cryptoAsset = crypto.find(c => c.symbol === sym);
+      if (cryptoAsset) return { ...cryptoAsset, __type: 'Crypto' };
+      return null;
+    })
+    .filter(Boolean);
 
   if (loading) return <p>Loading...</p>;
   if (error) return <p>{error}</p>;
@@ -98,7 +131,7 @@ const Dashboard = () => {
                   >
                     <span>{asset.symbol} - {asset.name}</span>
                     <span className={`font-semibold ${getChangeColor(asset.changePercent)}`}>
-                      {asset.changePercent.toFixed(2)}% {getArrowSymbol(asset.changePercent)}
+                      {asset.changePercent?.toFixed(2)}% {getArrowSymbol(asset.changePercent)}
                     </span>
                   </li>
                 ))}
@@ -113,18 +146,15 @@ const Dashboard = () => {
         <h2 className="text-lg font-semibold mb-2">Tracked Assets</h2>
         {trackedAssets.length > 0 ? (
           <ul className="space-y-1">
-            {trackedAssets.map(symbol => {
-              const asset = [...topGainers, ...topLosers].find(a => a.symbol === symbol);
-              return (
-                <li
-                  key={symbol}
-                  className="font-medium hover:text-blue-600 transition-colors cursor-pointer"
-                  onClick={() => asset && (setSelectedItem(asset), setSelectedType('asset'))}
-                >
-                  {symbol}
-                </li>
-              );
-            })}
+            {trackedAssets.map(asset => (
+              <li
+                key={asset.id}
+                className="font-medium hover:text-blue-600 transition-colors cursor-pointer"
+                onClick={() => { setSelectedItem(asset); setSelectedType('asset'); }}
+              >
+                {asset.symbol}
+              </li>
+            ))}
           </ul>
         ) : <p>—</p>}
       </div>
@@ -132,9 +162,9 @@ const Dashboard = () => {
       {/* Recent News */}
       <div className="bg-white p-6 rounded-lg shadow hover:shadow-xl transition-transform transform hover:scale-105">
         <h2 className="text-lg font-semibold mb-2">Recent News</h2>
-        {recentNews.length > 0 ? (
+        {data?.recentNews?.length > 0 ? (
           <ul className="space-y-2">
-            {recentNews.map(news => (
+            {data.recentNews.map(news => (
               <li
                 key={news.id}
                 className="flex justify-between items-center border-l-4 pl-2 hover:bg-gray-50 transition-colors cursor-pointer"
@@ -157,46 +187,7 @@ const Dashboard = () => {
 
       {/* Modal */}
       {selectedItem && (
-        <div
-          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
-          onClick={() => setSelectedItem(null)}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            className="bg-white rounded-lg p-6 w-full max-w-md space-y-3 relative shadow-lg"
-          >
-            <button
-              onClick={() => setSelectedItem(null)}
-              className="absolute top-2 right-2 text-gray-500 hover:text-gray-700"
-            >
-              ✖
-            </button>
-
-            {selectedType === 'asset' && (
-              <div className="space-y-2">
-                <h2 className="text-xl font-bold">{selectedItem.name} ({selectedItem.symbol})</h2>
-                <p className={`px-3 py-1 rounded ${selectedItem.changePercent >= 0 ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
-                  Price: ${selectedItem.currentPrice}
-                </p>
-                <p className={`px-3 py-1 rounded ${selectedItem.changePercent >= 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                  Change: {selectedItem.changePercent?.toFixed(2)}% {getArrowSymbol(selectedItem.changePercent)}
-                </p>
-                <p className="bg-gray-50 px-3 py-1 rounded">Volume: {selectedItem.volume?.toLocaleString()}</p>
-              </div>
-            )}
-
-            {selectedType === 'news' && (
-              <div className="space-y-2">
-                <h2 className="text-xl font-bold">{selectedItem.title}</h2>
-                <p className="text-sm text-gray-500 mb-2">{selectedItem.source} | {formatTimestamp(selectedItem.timestamp)}</p>
-                <p className="bg-gray-50 px-3 py-1 rounded">{selectedItem.summary ?? 'No summary available.'}</p>
-                <p className="bg-yellow-50 px-3 py-1 rounded">Impact: {selectedItem.impact ?? '—'}</p>
-                <p className="bg-purple-50 px-3 py-1 rounded">Affected Assets: {(selectedItem.affectedAssets ?? []).join(', ') || '—'}</p>
-                <p className="bg-indigo-50 px-3 py-1 rounded">Sentiment: {selectedItem.sentiment ?? '—'}</p>
-              </div>
-            )}
-          </div>
-        </div>
+        <Modal item={selectedItem} type={selectedType} onClose={() => setSelectedItem(null)} />
       )}
     </div>
   );
