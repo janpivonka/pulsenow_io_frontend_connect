@@ -1,4 +1,3 @@
-// /components/Modal.jsx
 import React from 'react';
 
 const Modal = ({ item, type, onClose }) => {

@@ -1,11 +1,10 @@
-// /components/Assets.jsx
-import { useEffect, useMemo, useState } from 'react';
-import { getStocks, getCrypto } from '../services/api';
+import { useState, useMemo } from 'react';
 import Modal from '../components/Modal';
+import { useRealTimeData } from '../services/useRealTimeData';
 
 const useDebounce = (value, delay = 300) => {
   const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
+  useMemo(() => {
     const id = setTimeout(() => setDebounced(value), delay);
     return () => clearTimeout(id);
   }, [value, delay]);
@@ -13,41 +12,22 @@ const useDebounce = (value, delay = 300) => {
 };
 
 const Assets = () => {
-  const [stocks, setStocks] = useState([]);
-  const [crypto, setCrypto] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
+  const { stocks, crypto } = useRealTimeData();
   const [filter, setFilter] = useState('all');
   const [sortField, setSortField] = useState(null);
   const [sortOrder, setSortOrder] = useState('asc');
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search);
-
   const [selectedAsset, setSelectedAsset] = useState(null);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const stocksRes = await getStocks();
-        const cryptoRes = await getCrypto();
-        setStocks(stocksRes.data ?? []);
-        setCrypto(cryptoRes.data ?? []);
-      } catch (err) {
-        console.error('Error fetching assets:', err);
-        setError('Failed to load assets.');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
-  }, []);
-
-  const getChangeColor = (value) => value >= 0 ? 'text-green-600' : 'text-red-600';
+  const getChangeColor = (value) => (value >= 0 ? 'text-green-600' : 'text-red-600');
 
   const handleSort = (field) => {
     if (sortField === field) setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-    else { setSortField(field); setSortOrder('asc'); }
+    else {
+      setSortField(field);
+      setSortOrder('asc');
+    }
   };
 
   const getSortIcon = (field) => {
@@ -59,7 +39,10 @@ const Assets = () => {
     let assets = [];
     if (filter === 'stocks') assets = stocks.map(a => ({ ...a, __type: 'Stock' }));
     else if (filter === 'crypto') assets = crypto.map(a => ({ ...a, __type: 'Crypto' }));
-    else assets = [...stocks.map(a => ({ ...a, __type: 'Stock' })), ...crypto.map(a => ({ ...a, __type: 'Crypto' }))];
+    else assets = [
+      ...stocks.map(a => ({ ...a, __type: 'Stock' })),
+      ...crypto.map(a => ({ ...a, __type: 'Crypto' }))
+    ];
 
     if (debouncedSearch) {
       const q = debouncedSearch.toLowerCase();
@@ -79,16 +62,12 @@ const Assets = () => {
     return assets;
   }, [stocks, crypto, filter, debouncedSearch, sortField, sortOrder]);
 
-  useEffect(() => {
-    if (!selectedAsset) return;
-    const onKey = e => { if (e.key === 'Escape') setSelectedAsset(null); };
+  if (selectedAsset) {
+    const onKey = (e) => { if (e.key === 'Escape') setSelectedAsset(null); };
     document.body.style.overflow = 'hidden';
     window.addEventListener('keydown', onKey);
     return () => { document.body.style.overflow = ''; window.removeEventListener('keydown', onKey); };
-  }, [selectedAsset]);
-
-  if (loading) return <p>Loading assets...</p>;
-  if (error) return <p>{error}</p>;
+  }
 
   return (
     <div className="w-full max-w-full p-4 md:p-6 space-y-6">
@@ -96,19 +75,19 @@ const Assets = () => {
 
       <input
         value={search}
-        onChange={e => setSearch(e.target.value)}
+        onChange={(e) => setSearch(e.target.value)}
         placeholder="Search by symbol or name…"
         className="w-full md:w-1/3 px-3 py-2 border rounded-lg"
       />
 
       <div className="flex gap-2">
-        {['all','stocks','crypto'].map(f => (
+        {['all', 'stocks', 'crypto'].map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
-            className={`px-4 py-2 rounded-lg font-medium ${filter===f?'bg-blue-500 text-white':'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+            className={`px-4 py-2 rounded-lg font-medium ${filter === f ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
           >
-            {f==='all'?'All':f==='stocks'?'Stocks':'Crypto'}
+            {f === 'all' ? 'All' : f === 'stocks' ? 'Stocks' : 'Crypto'}
           </button>
         ))}
       </div>
@@ -118,12 +97,12 @@ const Assets = () => {
           <thead className="bg-gray-100 sticky top-0">
             <tr>
               {[
-                ['symbol','Symbol'],
-                ['name','Name'],
-                ['currentPrice','Price'],
-                ['changePercent','Change %'],
-                ['volume','Volume']
-              ].map(([field,label]) => (
+                ['symbol', 'Symbol'],
+                ['name', 'Name'],
+                ['currentPrice', 'Price'],
+                ['changePercent', 'Change %'],
+                ['volume', 'Volume']
+              ].map(([field, label]) => (
                 <th key={field} onClick={() => handleSort(field)} className="px-4 py-2 cursor-pointer">
                   {label} <span>{getSortIcon(field)}</span>
                 </th>
@@ -143,12 +122,12 @@ const Assets = () => {
                   ${asset.currentPrice?.toLocaleString() ?? '—'}
                 </td>
                 <td className={`px-4 py-2 ${getChangeColor(asset.changePercent ?? 0)}`}>
-                  {asset.changePercent?.toFixed(2) ?? '—'}% {asset.changePercent >=0 ? '▲' : '▼'}
+                  {asset.changePercent?.toFixed(2) ?? '—'}% {asset.changePercent >= 0 ? '▲' : '▼'}
                 </td>
                 <td className="px-4 py-2">{asset.volume?.toLocaleString() ?? '—'}</td>
               </tr>
             ))}
-            {filteredAssets.length===0 && (
+            {filteredAssets.length === 0 && (
               <tr>
                 <td colSpan={5} className="text-center py-4 text-gray-500">No assets found</td>
               </tr>

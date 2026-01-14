@@ -1,9 +1,14 @@
 import { useEffect, useState } from 'react';
-import { getDashboard, getStocks, getCrypto } from '../services/api';
+import { getStocks, getCrypto, getNews, getPortfolio } from '../services/api';
 import Modal from '../components/Modal';
 
 const Dashboard = () => {
-  const [data, setData] = useState(null);
+  const [data, setData] = useState({
+    portfolio: null,
+    topGainers: [],
+    topLosers: [],
+    recentNews: [],
+  });
   const [stocks, setStocks] = useState([]);
   const [crypto, setCrypto] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -12,18 +17,46 @@ const Dashboard = () => {
   const [selectedItem, setSelectedItem] = useState(null);
   const [selectedType, setSelectedType] = useState(null); // 'asset' | 'news'
 
+  // --- Fetch all dashboard data ---
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [dashboardRes, stocksRes, cryptoRes] = await Promise.all([
-          getDashboard(),
+        const [stocksRes, cryptoRes, newsRes, portfolioRes] = await Promise.all([
           getStocks(),
-          getCrypto()
+          getCrypto(),
+          getNews(),
+          getPortfolio(),
         ]);
 
-        setData(dashboardRes.data.data ?? null);
-        setStocks(stocksRes.data ?? []);
-        setCrypto(cryptoRes.data ?? []);
+        const stocksData = stocksRes.data;
+        const cryptoData = cryptoRes.data;
+
+        // Top Gainers / Top Losers
+        const combinedAssets = [...stocksData, ...cryptoData];
+        const topGainers = combinedAssets
+          .sort((a, b) => b.changePercent - a.changePercent)
+          .slice(0, 5)
+          .map(item => ({
+            ...item,
+            __type: stocksData.find(s => s.id === item.id) ? 'Stock' : 'Crypto',
+          }));
+
+        const topLosers = combinedAssets
+          .sort((a, b) => a.changePercent - b.changePercent)
+          .slice(0, 5)
+          .map(item => ({
+            ...item,
+            __type: stocksData.find(s => s.id === item.id) ? 'Stock' : 'Crypto',
+          }));
+
+        setStocks(stocksData);
+        setCrypto(cryptoData);
+        setData({
+          portfolio: portfolioRes.data,
+          topGainers,
+          topLosers,
+          recentNews: newsRes.data,
+        });
       } catch (err) {
         console.error('Error fetching dashboard:', err);
         setError('Failed to load dashboard data.');
@@ -34,6 +67,7 @@ const Dashboard = () => {
     fetchData();
   }, []);
 
+  // --- Modal Esc key handling ---
   useEffect(() => {
     if (!selectedItem) return;
     document.body.style.overflow = 'hidden';
@@ -45,11 +79,11 @@ const Dashboard = () => {
     };
   }, [selectedItem]);
 
+  // --- Helpers ---
   const formatTimestamp = (timestamp) =>
     new Date(timestamp).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
 
-  const getChangeColor = (value) =>
-    value >= 0 ? 'text-green-700' : 'text-red-700';
+  const getChangeColor = (value) => value >= 0 ? 'text-green-700' : 'text-red-700';
 
   const categoryColor = (category) => {
     switch (category?.toLowerCase()) {
@@ -66,25 +100,9 @@ const Dashboard = () => {
 
   const getArrowSymbol = (value) => (value >= 0 ? '▲' : '▼');
 
-  const portfolio = data?.portfolio;
+  const portfolio = data.portfolio;
 
-  // --- Assign correct __type for topGainers/topLosers ---
-  const topGainers = (data?.topGainers ?? []).map(item => {
-    const foundStock = stocks.find(s => s.id === item.id || s.symbol === item.symbol);
-    if (foundStock) return { ...item, __type: 'Stock' };
-    const foundCrypto = crypto.find(c => c.id === item.id || c.symbol === item.symbol);
-    if (foundCrypto) return { ...item, __type: 'Crypto' };
-    return { ...item, __type: 'Stock' }; // fallback
-  });
-
-  const topLosers = (data?.topLosers ?? []).map(item => {
-    const foundStock = stocks.find(s => s.id === item.id || s.symbol === item.symbol);
-    if (foundStock) return { ...item, __type: 'Stock' };
-    const foundCrypto = crypto.find(c => c.id === item.id || c.symbol === item.symbol);
-    if (foundCrypto) return { ...item, __type: 'Crypto' };
-    return { ...item, __type: 'Stock' };
-  });
-
+  // Tracked assets (watchlist)
   const trackedAssets = (portfolio?.watchlist ?? [])
     .map(sym => {
       const stock = stocks.find(s => s.symbol === sym);
@@ -118,7 +136,7 @@ const Dashboard = () => {
 
       {/* Top Gainers & Losers */}
       <div className="grid md:grid-cols-2 gap-6">
-        {[{ title: 'Top Gainers', list: topGainers }, { title: 'Top Losers', list: topLosers }].map(({ title, list }) => (
+        {[{ title: 'Top Gainers', list: data.topGainers }, { title: 'Top Losers', list: data.topLosers }].map(({ title, list }) => (
           <div key={title} className="bg-white p-6 rounded-lg shadow hover:shadow-xl transition-transform transform hover:scale-105">
             <h2 className="text-lg font-semibold mb-2">{title}</h2>
             {list.length > 0 ? (
@@ -162,7 +180,7 @@ const Dashboard = () => {
       {/* Recent News */}
       <div className="bg-white p-6 rounded-lg shadow hover:shadow-xl transition-transform transform hover:scale-105">
         <h2 className="text-lg font-semibold mb-2">Recent News</h2>
-        {data?.recentNews?.length > 0 ? (
+        {data.recentNews.length > 0 ? (
           <ul className="space-y-2">
             {data.recentNews.map(news => (
               <li

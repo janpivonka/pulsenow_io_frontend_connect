@@ -701,4 +701,4 @@ const generateMarketData = () => {
   };
 };
 
-module.exports = generateMarketData();
+export default generateMarketData;
