@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import Modal from '../components/Modal';
 import { useRealTimeData } from '../services/useRealTimeData';
 
@@ -23,6 +23,9 @@ const Assets = () => {
   const getChangeColor = (value) => (value >= 0 ? 'text-green-600' : 'text-red-600');
 
   const handleSort = (field) => {
+    // pouze Symbol a Name se třídí
+    if (!['symbol', 'name'].includes(field)) return;
+
     if (sortField === field) setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
     else {
       setSortField(field);
@@ -31,6 +34,7 @@ const Assets = () => {
   };
 
   const getSortIcon = (field) => {
+    if (!['symbol', 'name'].includes(field)) return ''; // bez ikony pro ne-tříditelné
     if (sortField !== field) return '↕️';
     return sortOrder === 'asc' ? '⬆️' : '⬇️';
   };
@@ -53,21 +57,28 @@ const Assets = () => {
       assets = [...assets].sort((a, b) => {
         const aVal = a[sortField];
         const bVal = b[sortField];
-        if (typeof aVal === 'string' && typeof bVal === 'string')
-          return sortOrder === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-        return sortOrder === 'asc' ? (aVal ?? 0) - (bVal ?? 0) : (bVal ?? 0) - (aVal ?? 0);
+        return sortOrder === 'asc'
+          ? aVal.localeCompare(bVal)
+          : bVal.localeCompare(aVal);
       });
     }
 
     return assets;
   }, [stocks, crypto, filter, debouncedSearch, sortField, sortOrder]);
 
-  if (selectedAsset) {
+  // správný způsob pro Escape a body overflow
+  useEffect(() => {
+    if (!selectedAsset) return;
+
     const onKey = (e) => { if (e.key === 'Escape') setSelectedAsset(null); };
     document.body.style.overflow = 'hidden';
     window.addEventListener('keydown', onKey);
-    return () => { document.body.style.overflow = ''; window.removeEventListener('keydown', onKey); };
-  }
+
+    return () => {
+      document.body.style.overflow = '';
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [selectedAsset]);
 
   return (
     <div className="w-full max-w-full p-4 md:p-6 space-y-6">
@@ -103,7 +114,11 @@ const Assets = () => {
                 ['changePercent', 'Change %'],
                 ['volume', 'Volume']
               ].map(([field, label]) => (
-                <th key={field} onClick={() => handleSort(field)} className="px-4 py-2 cursor-pointer">
+                <th
+                  key={field}
+                  onClick={() => handleSort(field)}
+                  className={`px-4 py-2 cursor-pointer ${['symbol','name'].includes(field) ? 'cursor-pointer' : ''}`}
+                >
                   {label} <span>{getSortIcon(field)}</span>
                 </th>
               ))}
@@ -136,7 +151,6 @@ const Assets = () => {
         </table>
       </div>
 
-      {/* Modal */}
       {selectedAsset && (
         <Modal item={selectedAsset} type="asset" onClose={() => setSelectedAsset(null)} />
       )}
