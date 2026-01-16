@@ -31,8 +31,11 @@ export const RealTimeDataProvider = ({ children }) => {
         const close = Number((lastPrice + change).toFixed(2));
         history.push({
           time: now - i,
-          open, high: Math.max(open, close) + 0.05, low: Math.min(open, close) - 0.05,
-          close, volume: Math.floor(Math.random() * 1000) + 500
+          open,
+          high: Math.max(open, close) + 0.05,
+          low: Math.min(open, close) - 0.05,
+          close,
+          volume: Math.floor(Math.random() * 1000) + 500
         });
         lastPrice = close;
       }
@@ -60,11 +63,10 @@ export const RealTimeDataProvider = ({ children }) => {
     const interval = setInterval(() => {
       setData(prev => {
         const update = (asset) => {
-          const volatility = 0.0015; // 0.15% max pohyb za sekundu
+          const volatility = 0.0015;
           const change = (Math.random() - 0.5) * (asset.currentPrice * volatility);
           const newPrice = Number((asset.currentPrice + change).toFixed(2));
 
-          // Výpočet pohybu pro reálný pocit v Dashboardu
           const diff = newPrice - asset.currentPrice;
           const stepChangePercent = (diff / asset.currentPrice) * 100;
 
@@ -80,7 +82,6 @@ export const RealTimeDataProvider = ({ children }) => {
           return {
             ...asset,
             currentPrice: newPrice,
-            // Kumulativní aktualizace procent ze základu
             changePercent: asset.changePercent + stepChangePercent,
             changeAmount: asset.changeAmount + diff,
             liveTicks: [...asset.liveTicks, newTick].slice(-150)
@@ -102,11 +103,21 @@ export const RealTimeDataProvider = ({ children }) => {
       stocks: data.stocks,
       crypto: data.cryptocurrencies,
       news: data.news,
-      portfolio: data.portfolio
+      portfolio: data.portfolio,
+      // ZDE: Přidání aiCoreInsights, aby byla data dostupná v komponentách
+      aiCoreInsights: data.aiCoreInsights,
+      marketEvents: data.marketEvents,
+      alerts: data.alerts
     }}>
       {children}
     </RealTimeDataContext.Provider>
   );
 };
 
-export const useRealTimeData = () => useContext(RealTimeDataContext);
+export const useRealTimeData = () => {
+  const context = useContext(RealTimeDataContext);
+  if (context === undefined) {
+    throw new Error('useRealTimeData must be used within a RealTimeDataProvider');
+  }
+  return context;
+};
