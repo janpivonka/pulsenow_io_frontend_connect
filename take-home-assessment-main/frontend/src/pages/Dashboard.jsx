@@ -1,181 +1,93 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import Modal from '../components/Modal';
-import { getDashboard } from '../services/api';
 import { useRealTimeData } from '../services/useRealTimeData';
 
 const Dashboard = () => {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [selectedItem, setSelectedItem] = useState(null);
-  const [selectedType, setSelectedType] = useState(null); // 'asset' | 'news'
+  const [selectedType, setSelectedType] = useState(null);
+  const { stocks = [], crypto = [], news = [], portfolio = {} } = useRealTimeData();
+  const allAssets = useMemo(() => [...stocks, ...crypto], [stocks, crypto]);
 
-  const { stocks: realTimeStocks, crypto: realTimeCrypto } = useRealTimeData();
+  const topGainers = useMemo(() => allAssets.filter(a => a.changePercent > 0).sort((a, b) => b.changePercent - a.changePercent).slice(0, 3), [allAssets]);
+  const topLosers = useMemo(() => allAssets.filter(a => a.changePercent < 0).sort((a, b) => a.changePercent - b.changePercent).slice(0, 3), [allAssets]);
+  const trackedAssets = useMemo(() => (portfolio?.watchlist || []).map(sym => allAssets.find(a => a.symbol === sym)).filter(Boolean), [portfolio, allAssets]);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const dashboardRes = await getDashboard();
-        setData(dashboardRes.data?.data ?? null);
-      } catch (err) {
-        console.error('Error fetching dashboard:', err);
-        setError('Failed to load dashboard data.');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
-  }, []);
+  const getChangeColor = (val) => val >= 0 ? 'text-emerald-600' : 'text-rose-600';
+  const getArrow = (val) => val >= 0 ? '▲' : '▼';
 
-  // Modal / Escape key
-  useEffect(() => {
-    if (!selectedItem) return;
-    document.body.style.overflow = 'hidden';
-    const onKey = e => { if (e.key === 'Escape') setSelectedItem(null); };
-    window.addEventListener('keydown', onKey);
-    return () => {
-      document.body.style.overflow = '';
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [selectedItem]);
-
-  const formatTimestamp = (timestamp) =>
-    new Date(timestamp).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
-
-  const getChangeColor = (value) => value >= 0 ? 'text-green-700' : 'text-red-700';
-  const getArrowSymbol = (value) => value >= 0 ? '▲' : '▼';
-
-  const categoryColor = (category) => {
-    switch (category?.toLowerCase()) {
-      case 'ai': return 'bg-purple-200 text-purple-800';
-      case 'market': return 'bg-green-200 text-green-800';
-      case 'regulatory': return 'bg-yellow-200 text-yellow-800';
-      case 'crypto': return 'bg-indigo-200 text-indigo-800';
-      case 'technology': return 'bg-pink-200 text-pink-800';
-      case 'macro': return 'bg-orange-200 text-orange-800';
-      case 'earnings': return 'bg-green-100 text-green-900';
-      default: return 'bg-gray-200 text-gray-800';
-    }
-  };
-
-  const portfolio = data?.portfolio ?? [];
-
-  // --- Top Gainers & Losers with real-time data ---
-  const mergeWithRealTime = (item) => {
-    const foundStock = realTimeStocks.find(s => s.id === item.id || s.symbol === item.symbol);
-    if (foundStock) return { ...item, ...foundStock, __type: 'Stock' };
-    const foundCrypto = realTimeCrypto.find(c => c.id === item.id || c.symbol === item.symbol);
-    if (foundCrypto) return { ...item, ...foundCrypto, __type: 'Crypto' };
-    return { ...item, __type: 'Stock' };
-  };
-
-  const topGainers = (data?.topGainers ?? []).map(mergeWithRealTime);
-  const topLosers = (data?.topLosers ?? []).map(mergeWithRealTime);
-
-  const trackedAssets = (portfolio?.watchlist ?? [])
-    .map(sym => {
-      const stock = realTimeStocks.find(s => s.symbol === sym);
-      if (stock) return { ...stock, __type: 'Stock' };
-      const cryptoAsset = realTimeCrypto.find(c => c.symbol === sym);
-      if (cryptoAsset) return { ...cryptoAsset, __type: 'Crypto' };
-      return null;
-    })
-    .filter(Boolean);
-
-  if (loading) return <p>Loading...</p>;
-  if (error) return <p>{error}</p>;
+  if (!stocks.length) return <div className="p-20 text-center font-black animate-pulse text-xs tracking-[0.5em]">INITIALIZING...</div>;
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
-      <h1 className="text-3xl font-bold mb-4">Dashboard</h1>
+    <div className="space-y-6 md:space-y-8 p-4 md:p-12 max-w-7xl mx-auto text-slate-900">
+      <header>
+        <p className="text-blue-600 font-black uppercase tracking-[0.2em] text-[10px] mb-1">Market Overview</p>
+        <h1 className="text-3xl md:text-5xl font-black tracking-tighter">Dashboard</h1>
+      </header>
 
-      {/* Portfolio Summary */}
-      <div className="bg-white p-6 rounded-lg shadow hover:shadow-xl transition-transform transform hover:scale-105 flex flex-col md:flex-row justify-between items-center">
-        <div>
-          <h2 className="text-lg font-semibold">Total Portfolio Value</h2>
-          <p className="text-2xl mt-2">
-            {portfolio?.totalValue?.toLocaleString('en-US', { style: 'currency', currency: 'USD' }) ?? '—'}
-          </p>
-          <p className={`mt-1 ${getChangeColor(portfolio?.totalChange)}`}>
-            {portfolio?.totalChange?.toLocaleString('en-US', { style: 'currency', currency: 'USD' }) ?? '—'} (
-            {portfolio?.totalChangePercent?.toFixed(2) ?? '—'}%) {getArrowSymbol(portfolio?.totalChange)}
-          </p>
+      {/* PORTFOLIO STATS - Flex-wrap pro mobil */}
+      <div className="bg-white p-6 md:p-10 rounded-[2rem] md:rounded-[3rem] shadow-sm border border-slate-100">
+        <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Net Worth</h2>
+        <div className="flex flex-wrap items-baseline gap-2 md:gap-6">
+          <span className="text-3xl sm:text-4xl md:text-6xl font-black tracking-tighter">
+            ${portfolio?.totalValue?.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+          </span>
+          <div className={`text-sm md:text-xl font-bold px-3 py-1 rounded-xl bg-slate-50 ${getChangeColor(portfolio.totalChangePercent)}`}>
+            {getArrow(portfolio.totalChangePercent)} {portfolio.totalChangePercent?.toFixed(2)}%
+          </div>
         </div>
       </div>
 
-      {/* Top Gainers & Losers */}
-      <div className="grid md:grid-cols-2 gap-6">
-        {[{ title: 'Top Gainers', list: topGainers }, { title: 'Top Losers', list: topLosers }].map(({ title, list }) => (
-          <div key={title} className="bg-white p-6 rounded-lg shadow hover:shadow-xl transition-transform transform hover:scale-105">
-            <h2 className="text-lg font-semibold mb-2">{title}</h2>
-            {list.length > 0 ? (
-              <ul className="space-y-1">
-                {list.map(asset => (
-                  <li
-                    key={asset.id}
-                    className="flex justify-between items-center hover:bg-gray-50 p-1 rounded transition-colors cursor-pointer"
-                    onClick={() => { setSelectedItem(asset); setSelectedType('asset'); }}
-                  >
-                    <span>{asset.symbol} - {asset.name}</span>
-                    <span className={`font-semibold ${getChangeColor(asset.changePercent)}`}>
-                      {asset.changePercent?.toFixed(2)}% {getArrowSymbol(asset.changePercent)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : <p>—</p>}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
+        {/* GAINERS / LOSERS */}
+        {[
+          { title: 'Top Gainers', list: topGainers, color: 'text-emerald-600' },
+          { title: 'Top Losers', list: topLosers, color: 'text-rose-600' }
+        ].map((sec) => (
+          <div key={sec.title} className="bg-white p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] shadow-sm border border-slate-100">
+            <h3 className={`text-[10px] font-black uppercase tracking-widest mb-4 ${sec.color}`}>{sec.title}</h3>
+            <div className="space-y-1">
+              {sec.list.map(asset => (
+                <div key={asset.symbol} onClick={() => {setSelectedItem(asset); setSelectedType('asset');}}
+                  className="flex justify-between items-center p-3 rounded-xl hover:bg-slate-50 cursor-pointer transition-all">
+                  <span className="font-bold text-sm md:text-base">{asset.symbol}</span>
+                  <span className={`font-mono font-bold text-xs md:text-sm ${getChangeColor(asset.changePercent)}`}>
+                    {getArrow(asset.changePercent)} {Math.abs(asset.changePercent).toFixed(2)}%
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         ))}
       </div>
 
-      {/* Tracked Assets */}
-      <div className="bg-white p-6 rounded-lg shadow hover:shadow-xl transition-transform transform hover:scale-105">
-        <h2 className="text-lg font-semibold mb-2">Tracked Assets</h2>
-        {trackedAssets.length > 0 ? (
-          <ul className="space-y-1">
-            {trackedAssets.map(asset => (
-              <li
-                key={asset.id}
-                className="font-medium hover:text-blue-600 transition-colors cursor-pointer"
-                onClick={() => { setSelectedItem(asset); setSelectedType('asset'); }}
-              >
-                {asset.symbol}
-              </li>
-            ))}
-          </ul>
-        ) : <p>—</p>}
+      {/* WATCHLIST - Lepší wrap na mobilu */}
+      <div className="bg-white p-6 md:p-8 rounded-[2rem] border border-slate-100">
+        <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Watchlist</h3>
+        <div className="flex flex-wrap gap-2 md:gap-4">
+          {trackedAssets.map(asset => (
+            <button key={asset.symbol} onClick={() => {setSelectedItem(asset); setSelectedType('asset');}}
+              className="flex-1 md:flex-none px-4 py-3 bg-slate-50 rounded-xl font-black text-xs transition-all border border-slate-100 active:bg-slate-900 active:text-white">
+              {asset.symbol}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Recent News */}
-      <div className="bg-white p-6 rounded-lg shadow hover:shadow-xl transition-transform transform hover:scale-105">
-        <h2 className="text-lg font-semibold mb-2">Recent News</h2>
-        {data?.recentNews?.length > 0 ? (
-          <ul className="space-y-2">
-            {data.recentNews.map(news => (
-              <li
-                key={news.id}
-                className="flex justify-between items-center border-l-4 pl-2 hover:bg-gray-50 transition-colors cursor-pointer"
-                style={{ borderColor: '#3B82F6' }}
-                onClick={() => { setSelectedItem(news); setSelectedType('news'); }}
-              >
-                <div>
-                  <span className={`px-2 py-1 text-xs rounded ${categoryColor(news.category)}`}>
-                    {news.category ?? 'General'}
-                  </span>
-                  <p className="font-medium">{news.title}</p>
-                  <p className="text-sm text-gray-500">{news.source}</p>
-                </div>
-                <span className="text-gray-400 text-sm">{formatTimestamp(news.timestamp)}</span>
-              </li>
-            ))}
-          </ul>
-        ) : <p>—</p>}
+      {/* NEWS - Skrytí času na extra malých displejích */}
+      <div className="bg-white p-6 md:p-8 rounded-[2rem] border border-slate-100">
+        <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Intelligence</h3>
+        <div className="divide-y divide-slate-50">
+          {news.slice(0, 4).map(n => (
+            <div key={n.id} onClick={() => {setSelectedItem(n); setSelectedType('news');}}
+              className="py-4 first:pt-0 last:pb-0 cursor-pointer group">
+              <span className="text-[9px] font-black text-blue-500 uppercase tracking-tighter">{n.category}</span>
+              <h4 className="font-bold text-sm md:text-base leading-tight group-hover:text-blue-600 transition-colors">{n.title}</h4>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* Modal */}
-      {selectedItem && (
-        <Modal item={selectedItem} type={selectedType} onClose={() => setSelectedItem(null)} />
-      )}
+      {selectedItem && <Modal item={selectedItem} type={selectedType} onClose={() => setSelectedItem(null)} />}
     </div>
   );
 };

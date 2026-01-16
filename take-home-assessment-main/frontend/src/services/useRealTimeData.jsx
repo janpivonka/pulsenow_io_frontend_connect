@@ -21,23 +21,18 @@ export const RealTimeDataProvider = ({ children }) => {
       });
     };
 
-    // Funkce pro vytvoření startovní historie pro 1s graf
     const generateFakeLiveHistory = (currentPrice) => {
       const history = [];
       const now = Math.floor(Date.now() / 1000);
       let lastPrice = currentPrice;
-
       for (let i = 100; i >= 0; i--) {
         const change = (Math.random() - 0.5) * (lastPrice * 0.002);
         const open = lastPrice;
         const close = Number((lastPrice + change).toFixed(2));
         history.push({
           time: now - i,
-          open: open,
-          high: Math.max(open, close) + 0.05,
-          low: Math.min(open, close) - 0.05,
-          close: close,
-          volume: Math.floor(Math.random() * 1000) + 500
+          open, high: Math.max(open, close) + 0.05, low: Math.min(open, close) - 0.05,
+          close, volume: Math.floor(Math.random() * 1000) + 500
         });
         lastPrice = close;
       }
@@ -65,23 +60,29 @@ export const RealTimeDataProvider = ({ children }) => {
     const interval = setInterval(() => {
       setData(prev => {
         const update = (asset) => {
-          const change = (Math.random() - 0.5) * (asset.currentPrice * 0.002);
+          const volatility = 0.0015; // 0.15% max pohyb za sekundu
+          const change = (Math.random() - 0.5) * (asset.currentPrice * volatility);
           const newPrice = Number((asset.currentPrice + change).toFixed(2));
-          const newVolume = Math.floor(Math.random() * 5000) + 1000;
+
+          // Výpočet pohybu pro reálný pocit v Dashboardu
+          const diff = newPrice - asset.currentPrice;
+          const stepChangePercent = (diff / asset.currentPrice) * 100;
 
           const newTick = {
             time: Math.floor(Date.now() / 1000),
             open: asset.currentPrice,
-            high: Math.max(asset.currentPrice, newPrice) + 0.05,
-            low: Math.min(asset.currentPrice, newPrice) - 0.05,
+            high: Math.max(asset.currentPrice, newPrice) + 0.02,
+            low: Math.min(asset.currentPrice, newPrice) - 0.02,
             close: newPrice,
-            volume: newVolume
+            volume: Math.floor(Math.random() * 500) + 100
           };
 
           return {
             ...asset,
             currentPrice: newPrice,
-            volume: asset.volume + newVolume,
+            // Kumulativní aktualizace procent ze základu
+            changePercent: asset.changePercent + stepChangePercent,
+            changeAmount: asset.changeAmount + diff,
             liveTicks: [...asset.liveTicks, newTick].slice(-150)
           };
         };
@@ -97,7 +98,12 @@ export const RealTimeDataProvider = ({ children }) => {
   }, []);
 
   return (
-    <RealTimeDataContext.Provider value={{ stocks: data.stocks, crypto: data.cryptocurrencies }}>
+    <RealTimeDataContext.Provider value={{
+      stocks: data.stocks,
+      crypto: data.cryptocurrencies,
+      news: data.news,
+      portfolio: data.portfolio
+    }}>
       {children}
     </RealTimeDataContext.Provider>
   );
