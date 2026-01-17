@@ -1,20 +1,33 @@
 import React, { useMemo } from 'react';
 import { useRealTimeData } from '../services/useRealTimeData';
+import { useTrading } from '../services/TradingContext';
 import PageHeader from '../components/PageHeader';
 
 const Portfolio = () => {
   const { stocks = [], crypto = [], portfolio = {}, aiCoreInsights = [] } = useRealTimeData();
+  const { manualPositions } = useTrading();
 
   const stats = useMemo(() => {
-    if (!portfolio || !portfolio.assets) return { myPositions: [], total: 0, pl: 0, plPercent: 0, cash: 0 };
+    const serverAssets = portfolio?.assets || [];
 
+    // Transformace manuálních pozic do formátu portfolia
+    const convertedManual = manualPositions.map(mp => ({
+      assetId: mp.symbol,
+      quantity: mp.amount,
+      avgBuyPrice: mp.price,
+      currentPrice: mp.price,
+      isManual: true
+    }));
+
+    const allAssets = [...serverAssets, ...convertedManual];
     const allMarketAssets = [...stocks, ...crypto];
+
     let currentAssetsValue = 0;
     let totalCost = 0;
 
-    const positions = portfolio.assets.map(item => {
+    const positions = allAssets.map((item, index) => {
       const marketData = allMarketAssets.find(a => a.symbol === item.assetId);
-      const currentPrice = marketData?.currentPrice || item.currentPrice;
+      const currentPrice = marketData?.currentPrice || item.currentPrice || 0;
       const currentValue = currentPrice * item.quantity;
       const positionCost = item.avgBuyPrice * item.quantity;
 
@@ -22,6 +35,7 @@ const Portfolio = () => {
       totalCost += positionCost;
 
       return {
+        key: `${item.assetId}-${index}`,
         symbol: item.assetId,
         name: marketData?.name || item.assetId,
         amount: item.quantity,
@@ -29,7 +43,8 @@ const Portfolio = () => {
         currentPrice,
         currentValue,
         profitLoss: currentValue - positionCost,
-        plPercent: item.avgBuyPrice !== 0 ? ((currentPrice - item.avgBuyPrice) / item.avgBuyPrice) * 100 : 0
+        plPercent: item.avgBuyPrice !== 0 ? ((currentPrice - item.avgBuyPrice) / item.avgBuyPrice) * 100 : 0,
+        isManual: item.isManual
       };
     }).sort((a, b) => b.currentValue - a.currentValue);
 
@@ -41,7 +56,7 @@ const Portfolio = () => {
     return {
       myPositions: positions, total, pl: totalPL, plPercent: cost !== 0 ? (totalPL / cost) * 100 : 0, cash
     };
-  }, [stocks, crypto, portfolio]);
+  }, [stocks, crypto, portfolio, manualPositions]);
 
   const getChangeColor = (val) => val >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400';
 
@@ -61,7 +76,7 @@ const Portfolio = () => {
               ${stats.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
             </div>
             <div className={`text-sm font-bold flex items-center md:justify-end gap-2 ${getChangeColor(stats.pl)}`}>
-              <span>{stats.pl >= 0 ? '▲' : '▼'} ${Math.abs(stats.pl).toLocaleString()}</span>
+              <span>{stats.pl >= 0 ? '▲' : '▼'} ${Math.abs(stats.pl).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
               <span className="opacity-40 font-black">({stats.plPercent.toFixed(2)}%)</span>
             </div>
           </div>
@@ -89,11 +104,10 @@ const Portfolio = () => {
           <h2 className="font-black text-lg md:text-xl tracking-tight uppercase italic dark:text-white">Holdings</h2>
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Live</span>
+            <span className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Live Feed</span>
           </div>
         </div>
 
-        {/* TABLE FOR DESKTOP */}
         <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead className="bg-slate-50/50 dark:bg-slate-800/40 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
@@ -106,18 +120,21 @@ const Portfolio = () => {
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
               {stats.myPositions.map((pos) => (
-                <tr key={pos.symbol} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors group">
+                <tr key={pos.key} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors group">
                   <td className="px-8 py-6">
-                    <div className="font-black text-lg uppercase group-hover:text-blue-600 dark:group-hover:text-blue-400 italic dark:text-slate-100">{pos.symbol}</div>
+                    <div className="flex items-center gap-3">
+                      <div className="font-black text-lg uppercase group-hover:text-blue-600 dark:group-hover:text-blue-400 italic dark:text-slate-100">{pos.symbol}</div>
+                      {pos.isManual && <span className="text-[7px] bg-blue-600 text-white px-1.5 py-0.5 rounded font-black uppercase">Manual</span>}
+                    </div>
                     <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase mt-1">{pos.name}</div>
                   </td>
                   <td className="px-8 py-6 text-right font-mono font-bold text-slate-500 dark:text-slate-400">{pos.amount.toLocaleString()}</td>
                   <td className="px-8 py-6 text-right">
-                    <div className="font-black text-lg">${pos.currentValue.toLocaleString()}</div>
+                    <div className="font-black text-lg">${pos.currentValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
                     <div className="text-[10px] text-slate-400 font-bold uppercase mt-1">Avg: ${pos.avgPrice.toLocaleString()}</div>
                   </td>
                   <td className="px-8 py-6 text-right">
-                    <div className={`font-black text-lg ${getChangeColor(pos.profitLoss)}`}>{pos.profitLoss >= 0 ? '+' : '-'}${Math.abs(pos.profitLoss).toLocaleString()}</div>
+                    <div className={`font-black text-lg ${getChangeColor(pos.profitLoss)}`}>{pos.profitLoss >= 0 ? '+' : '-'}${Math.abs(pos.profitLoss).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
                     <div className={`text-[10px] font-black uppercase px-2 py-0.5 rounded mt-1 inline-block ${pos.profitLoss >= 0 ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600' : 'bg-rose-50 dark:bg-rose-900/20 text-rose-600'}`}>{pos.plPercent.toFixed(2)}%</div>
                   </td>
                 </tr>
@@ -126,10 +143,10 @@ const Portfolio = () => {
           </table>
         </div>
 
-        {/* CARDS FOR MOBILE */}
+        {/* MOBILE CARDS */}
         <div className="md:hidden divide-y divide-slate-50 dark:divide-slate-800">
           {stats.myPositions.map((pos) => (
-            <div key={pos.symbol} className="p-6 space-y-4">
+            <div key={pos.key} className="p-6 space-y-4">
               <div className="flex justify-between items-start">
                 <div>
                   <div className="font-black text-xl italic uppercase text-blue-600 dark:text-blue-400">{pos.symbol}</div>
