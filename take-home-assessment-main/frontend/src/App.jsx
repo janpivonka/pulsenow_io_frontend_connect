@@ -7,25 +7,27 @@ import Portfolio from './pages/Portfolio'
 import Layout from './components/Layout'
 import ScrollToTop from './components/ScrollToTop' // Importuj novou komponentu
 import { RealTimeDataProvider } from './services/useRealTimeData'
+import { ThemeProvider } from './services/ThemeContext'
 
 function App() {
   return (
-    <Router>
-      {/* ScrollToTop musí být pod Routerem, aby mohl sledovat změny URL */}
-      <ScrollToTop />
+    <ThemeProvider>
+      <Router>
+        <ScrollToTop />
 
-      <RealTimeDataProvider interval={1000}>
-        <Layout>
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/assets" element={<Assets />} />
-            <Route path="/news" element={<News />} />
-            <Route path="/alerts" element={<Alerts />} />
-            <Route path="/portfolio" element={<Portfolio />} />
-          </Routes>
-        </Layout>
-      </RealTimeDataProvider>
-    </Router>
+        <RealTimeDataProvider interval={1000}>
+          <Layout>
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/assets" element={<Assets />} />
+              <Route path="/news" element={<News />} />
+              <Route path="/alerts" element={<Alerts />} />
+              <Route path="/portfolio" element={<Portfolio />} />
+            </Routes>
+          </Layout>
+        </RealTimeDataProvider>
+      </Router>
+    </ThemeProvider>
   )
 }
 
