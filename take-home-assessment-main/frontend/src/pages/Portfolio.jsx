@@ -59,6 +59,20 @@ const Portfolio = () => {
 
   const getChangeColor = (val) => val >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400';
 
+  // POMOCNÁ FUNKCE PRO STYL TYPU OBCHODU V HISTORII
+  const getActionStyle = (type) => {
+    switch (type) {
+      case 'TP_EXIT':
+        return 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20';
+      case 'SL_EXIT':
+        return 'bg-rose-500/10 text-rose-500 border-rose-500/20';
+      case 'PARTIAL_CLOSE':
+        return 'bg-blue-500/10 text-blue-500 border-blue-500/20';
+      default:
+        return 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700';
+    }
+  };
+
   if (!stats) return null;
 
   return (
@@ -82,11 +96,10 @@ const Portfolio = () => {
 
       {/* QUICK STATS & PERFORMANCE */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-        {/* Realized Profit Card - Highlighted */}
         <div className="bg-slate-900 p-4 md:p-6 rounded-2xl md:rounded-3xl border border-slate-800 shadow-xl transition-all hover:scale-[1.02]">
           <p className="text-[8px] md:text-[9px] font-black uppercase text-blue-500 tracking-widest mb-1">Realized P/L</p>
           <p className={`text-sm md:text-xl font-black italic uppercase leading-none truncate ${getChangeColor(stats.realizedPL)}`}>
-            {stats.realizedPL >= 0 ? '+' : ''}${stats.realizedPL.toLocaleString()}
+            {stats.realizedPL >= 0 ? '+' : ''}${stats.realizedPL.toLocaleString(undefined, { minimumFractionDigits: 2 })}
           </p>
         </div>
 
@@ -112,7 +125,7 @@ const Portfolio = () => {
           </div>
         </div>
 
-        <div className="hidden md:block overflow-x-auto">
+        <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead className="bg-slate-50/50 dark:bg-slate-800/40 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
               <tr>
@@ -177,17 +190,19 @@ const Portfolio = () => {
                 </tr>
               ) : (
                 history.map((trade) => (
-                  <tr key={trade.id} className="opacity-60 hover:opacity-100 transition-opacity">
+                  <tr key={trade.id} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
                     <td className="px-8 py-4 font-black italic uppercase dark:text-slate-300">{trade.symbol}</td>
                     <td className="px-8 py-4">
-                      <span className="text-[8px] font-black bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded uppercase">{trade.type}</span>
+                      <span className={`text-[8px] font-black px-2 py-1 rounded border uppercase tracking-tighter ${getActionStyle(trade.type)}`}>
+                        {trade.type.replace('_', ' ')}
+                      </span>
                     </td>
-                    <td className="px-8 py-4 text-right font-mono text-xs">{trade.amount.toLocaleString()}</td>
+                    <td className="px-8 py-4 text-right font-mono text-xs font-bold text-slate-500">{trade.amount.toLocaleString()}</td>
                     <td className={`px-8 py-4 text-right font-mono text-xs font-bold ${getChangeColor(trade.pl)}`}>
-                      {trade.pl >= 0 ? '+' : ''}${trade.pl.toLocaleString()}
+                      {trade.pl >= 0 ? '+' : ''}${trade.pl.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                     </td>
                     <td className="px-8 py-4 text-right text-[10px] font-bold text-slate-400 uppercase">
-                      {new Date(trade.timestamp).toLocaleTimeString()}
+                      {new Date(trade.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                     </td>
                   </tr>
                 ))

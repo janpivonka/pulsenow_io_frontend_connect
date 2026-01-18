@@ -2,9 +2,9 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import generateMarketData from '../../../backend/mockData';
 import { useRealTimeData } from './useRealTimeData';
 
-// IMPORT NOVÝCH MODALŮ
 import MarketOrderModal from '../components/MarketOrderModal';
 import PositionManagerModal from '../components/PositionManagerModal';
+import TradeSuccessModal from '../components/TradeSuccessModal';
 
 const TradingContext = createContext();
 
@@ -14,13 +14,21 @@ export const TradingProvider = ({ children }) => {
   const [cashBalance, setCashBalance] = useState(0);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // --- STAV PRO MODALY ---
-  const [activeModal, setActiveModal] = useState(null); // 'MARKET' | 'MANAGE' | null
+  const [activeModal, setActiveModal] = useState(null);
   const [modalData, setModalData] = useState(null);
+
+  // --- STAVY PRO SUCCESS MODAL (Nyní očekává pole objektů) ---
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [successData, setSuccessData] = useState([]);
 
   const { stocks, crypto } = useRealTimeData();
 
-  // --- FUNKCE PRO OVLÁDÁNÍ MODALŮ ---
+  // Pomocná funkce pro spuštění success okna s jednou zprávou
+  const triggerSuccess = (symbol, pl, type) => {
+    setSuccessData([{ symbol, pl, type }]);
+    setShowSuccess(true);
+  };
+
   const openMarketOrder = (symbol, type, price) => {
     setModalData({ symbol, type, price });
     setActiveModal('MARKET');
@@ -50,7 +58,6 @@ export const TradingProvider = ({ children }) => {
 
       if (!currentPrice) return;
 
-      // Voláme closePosition s unikátním ID pozice pro přesnost
       if (pos.tp && currentPrice >= pos.tp) {
         closePosition(pos.id, currentPrice, 'TP_EXIT');
       }
@@ -68,8 +75,8 @@ export const TradingProvider = ({ children }) => {
         const initialPositions = data.portfolio.assets.map(asset => ({
           id: `mock_${asset.assetId}_${Math.random().toString(36).substr(2, 5)}`,
           symbol: asset.assetId,
-          amount: asset.quantity,
-          price: asset.avgBuyPrice,
+          amount: Number(asset.quantity),
+          price: Number(asset.avgBuyPrice),
           sl: null,
           tp: null,
           timestamp: new Date().toISOString(),
@@ -84,40 +91,82 @@ export const TradingProvider = ({ children }) => {
     }
   }, []);
 
-  // --- LOGIKA PRO VÝKON PŘÍKAZŮ ---
+  // --- BEZPEČNÝ ZÁPIS DO HISTORIE ---
+  const addTradeToHistory = (entry) => {
+    if (!entry.amount || entry.amount <= 0) return;
+
+    setHistory(prevHistory => {
+      if (prevHistory.length > 0) {
+        const last = prevHistory[0];
+        const isDuplicate =
+          last.symbol === entry.symbol &&
+          last.type === entry.type &&
+          Math.abs(last.pl - entry.pl) < 0.0001 &&
+          (new Date(entry.timestamp) - new Date(last.timestamp) < 800);
+
+        if (isDuplicate) return prevHistory;
+      }
+      return [entry, ...prevHistory];
+    });
+  };
+
+  // --- LOGIKA PRO VÝKON PŘÍKAZŮ (S PODPOROU DÁVKOVÝCH ZPRÁV) ---
   const placeOrder = (order) => {
     setPositions(prev => {
-      // Hledáme existující pozici podle ID (pokud ho order má) nebo podle symbolu
       const existingIdx = prev.findIndex(p => (order.id && p.id === order.id) || p.symbol === order.symbol);
       const updated = [...prev];
 
       if (existingIdx > -1) {
         const current = updated[existingIdx];
-        if (order.type === 'buy') {
-          const newAmount = current.amount + order.amount;
-          const newPrice = ((current.price * current.amount) + (order.price * order.amount)) / newAmount;
-          updated[existingIdx] = {
-            ...current,
-            amount: newAmount,
-            price: newPrice,
-            sl: order.sl || current.sl,
-            tp: order.tp || current.tp
-          };
-        } else {
-          // Logika pro odprodej / snížení pozice
-          const soldAmount = order.amount;
-          const realizedPL = (order.price - current.price) * soldAmount;
+        const batchMessages = [];
 
-          setHistory(h => [{
-            id: Date.now(),
-            symbol: order.symbol,
-            amount: soldAmount,
-            buyPrice: current.price,
-            sellPrice: order.price,
-            pl: realizedPL,
-            type: 'PARTIAL_CLOSE',
-            timestamp: new Date().toISOString()
-          }, ...h]);
+        // 1. Kontrola změny SL/TP (pokud se liší, přidáme zprávu)
+        if (order.sl !== current.sl || order.tp !== current.tp) {
+          batchMessages.push({ symbol: current.symbol, pl: null, type: 'RISK PROTECTION UPDATED' });
+        }
+
+        if (order.type === 'buy') {
+          const addedAmount = Number(order.amount) || 0;
+          if (addedAmount > 0) {
+            const newAmount = Number(current.amount) + addedAmount;
+            const newPrice = ((current.price * current.amount) + (Number(order.price) * addedAmount)) / newAmount;
+
+            updated[existingIdx] = {
+              ...current,
+              amount: newAmount,
+              price: newPrice,
+              sl: order.sl !== undefined ? order.sl : current.sl,
+              tp: order.tp !== undefined ? order.tp : current.tp
+            };
+            batchMessages.push({ symbol: current.symbol, pl: null, type: 'POSITION INCREASED' });
+          } else {
+            // Jen update parametrů
+            updated[existingIdx] = {
+              ...current,
+              sl: order.sl !== undefined ? order.sl : current.sl,
+              tp: order.tp !== undefined ? order.tp : current.tp
+            };
+            if (batchMessages.length === 0) batchMessages.push({ symbol: current.symbol, pl: null, type: 'ORDER MODIFIED' });
+          }
+        } else if (order.type === 'sell') {
+          const soldAmount = Number(order.amount) || 0;
+
+          if (soldAmount > 0) {
+            const realizedPL = (Number(order.price) - Number(current.price)) * soldAmount;
+            addTradeToHistory({
+              id: `part-${Date.now()}`,
+              symbol: current.symbol,
+              amount: soldAmount,
+              buyPrice: current.price,
+              sellPrice: order.price,
+              pl: realizedPL,
+              type: 'PARTIAL_CLOSE',
+              timestamp: new Date().toISOString()
+            });
+            batchMessages.push({ symbol: current.symbol, pl: realizedPL, type: 'PARTIAL SELL EXECUTED' });
+          } else {
+            if (batchMessages.length === 0) batchMessages.push({ symbol: current.symbol, pl: null, type: 'ORDER MODIFIED' });
+          }
 
           const newAmount = current.amount - soldAmount;
           if (newAmount <= 0) {
@@ -131,46 +180,53 @@ export const TradingProvider = ({ children }) => {
             };
           }
         }
+
+        // Pokud byly nějaké změny, vyvolej modal se všemi nasbíranými zprávami
+        if (batchMessages.length > 0) {
+          setSuccessData(batchMessages);
+          setShowSuccess(true);
+        }
         return updated;
       }
 
-      // Otevření úplně nové pozice
-      if (order.type === 'buy' || order.type === 'sell') {
-        return [...prev, {
+      // NOVÁ POZICE
+      if (order.type === 'buy' && Number(order.amount) > 0) {
+        const newPos = {
           ...order,
+          amount: Number(order.amount),
+          price: Number(order.price),
           id: order.id || `manual_${Math.random().toString(36).substr(2, 9)}`,
           timestamp: new Date().toISOString()
-        }];
+        };
+        triggerSuccess(order.symbol, null, 'NEW POSITION OPENED');
+        return [...prev, newPos];
       }
       return prev;
     });
   };
 
-  // --- OPRAVENÁ FUNKCE PRO UZAVŘENÍ POZICE ---
   const closePosition = (idOrSymbol, exitPrice = null, exitType = 'FULL_CLOSE') => {
     setPositions(prev => {
-      // 1. Najdeme konkrétní pozici (podle ID nebo symbolu jako fallback)
       const posToClose = prev.find(p => p.id === idOrSymbol || p.symbol === idOrSymbol);
-
       if (!posToClose) return prev;
 
-      // 2. Výpočet výsledku obchodu
-      const price = exitPrice || posToClose.price;
-      const realizedPL = (price - posToClose.price) * posToClose.amount;
+      const price = Number(exitPrice) || posToClose.price;
+      const amount = Number(posToClose.amount);
+      const realizedPL = (price - posToClose.price) * amount;
 
-      // 3. Zápis do historie
-      setHistory(h => [{
-        id: Date.now(),
+      addTradeToHistory({
+        id: `full-${Date.now()}`,
         symbol: posToClose.symbol,
-        amount: posToClose.amount,
+        amount: amount,
         buyPrice: posToClose.price,
         sellPrice: price,
         pl: realizedPL,
         type: exitType,
         timestamp: new Date().toISOString()
-      }, ...h]);
+      });
 
-      // 4. Odstranění z aktivních pozic pomocí unikátního ID
+      triggerSuccess(posToClose.symbol, realizedPL, exitType.replace('_', ' '));
+
       return prev.filter(pos => pos.id !== posToClose.id);
     });
   };
@@ -182,23 +238,19 @@ export const TradingProvider = ({ children }) => {
     }}>
       {children}
 
-      {/* GLOBÁLNÍ RENDEROVÁNÍ MODALŮ */}
       {activeModal === 'MARKET' && (
-        <MarketOrderModal
-          isOpen={true}
-          onClose={closeModal}
-          onConfirm={placeOrder}
-          data={modalData}
-        />
+        <MarketOrderModal isOpen={true} onClose={closeModal} onConfirm={placeOrder} data={modalData} />
       )}
+
       {activeModal === 'MANAGE' && (
-        <PositionManagerModal
-          isOpen={true}
-          onClose={closeModal}
-          onConfirm={placeOrder}
-          data={modalData}
-        />
+        <PositionManagerModal isOpen={true} onClose={closeModal} onConfirm={(order) => { placeOrder(order); closeModal(); }} data={modalData} />
       )}
+
+      <TradeSuccessModal
+        isOpen={showSuccess}
+        onClose={() => { setShowSuccess(false); setSuccessData([]); }}
+        data={successData}
+      />
     </TradingContext.Provider>
   );
 };

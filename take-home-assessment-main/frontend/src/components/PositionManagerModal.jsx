@@ -2,31 +2,23 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useTrading } from '../services/TradingContext';
 import { useRealTimeData } from '../services/useRealTimeData';
 
-// --- NAVÁZANÝ VYLEPŠENÝ DELETE MODAL ---
-const DeleteConfirmationModal = ({ isOpen, onClose, onConfirm, symbol }) => {
+const DeleteConfirmationModal = ({ isOpen, onClose, onConfirm, symbol, title = "Close Position?", desc = "" }) => {
   if (!isOpen) return null;
-
   return (
     <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-white dark:bg-slate-900 w-full max-w-xs rounded-[2rem] p-6 shadow-2xl border dark:border-slate-800 animate-in zoom-in duration-200">
         <div className="w-12 h-12 bg-rose-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
           <span className="text-rose-500 text-xl">⚠️</span>
         </div>
-        <h3 className="text-center text-sm font-black dark:text-white uppercase tracking-widest mb-2">Close Position?</h3>
+        <h3 className="text-center text-sm font-black dark:text-white uppercase tracking-widest mb-2">{title}</h3>
         <p className="text-center text-[10px] text-slate-400 font-bold uppercase tracking-tight mb-6">
-          Are you sure you want to exit all {symbol} holdings at market price?
+          {desc || `Are you sure you want to exit all ${symbol} holdings at market price?`}
         </p>
         <div className="flex flex-col gap-2">
-          <button
-            onClick={onConfirm}
-            className="w-full py-4 bg-rose-500 text-white rounded-xl font-black uppercase text-[9px] tracking-widest shadow-lg shadow-rose-500/20 active:scale-95 transition-transform"
-          >
-            Yes, Close Position
+          <button onClick={onConfirm} className="w-full py-4 bg-rose-500 text-white rounded-xl font-black uppercase text-[9px] tracking-widest shadow-lg active:scale-95 transition-transform">
+            Confirm Order
           </button>
-          <button
-            onClick={onClose}
-            className="w-full py-3 text-[9px] font-black uppercase text-slate-400 tracking-widest"
-          >
+          <button onClick={onClose} className="w-full py-3 text-[9px] font-black uppercase text-slate-400 tracking-widest">
             Go Back
           </button>
         </div>
@@ -35,12 +27,10 @@ const DeleteConfirmationModal = ({ isOpen, onClose, onConfirm, symbol }) => {
   );
 };
 
-// --- HLAVNÍ POSITION MANAGER ---
 const PositionManagerModal = ({ isOpen, onClose, onConfirm, data }) => {
   const { closePosition, positions } = useTrading();
   const { stocks, crypto } = useRealTimeData();
 
-  // --- DRAG LOGIC ---
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const dragOffset = useRef({ x: 0, y: 0 });
@@ -48,23 +38,17 @@ const PositionManagerModal = ({ isOpen, onClose, onConfirm, data }) => {
 
   const [activeTab, setActiveTab] = useState('manage');
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [showPartialConfirm, setShowPartialConfirm] = useState(false); // NOVÝ STAV
   const [tradeAmount, setTradeAmount] = useState(0);
   const [sliderVal, setSliderVal] = useState(0);
   const [addAmount, setAddAmount] = useState(0);
   const [sl, setSl] = useState('');
   const [tp, setTp] = useState('');
 
-  // --- AUTO-CLOSE & PERSISTENT POSITION LOGIC ---
   useEffect(() => {
     if (isOpen && data) {
-      // 1. Kontrola, zda pozice stále existuje (pokud ne, zavři modal - SL/TP hit)
       const currentPos = positions.find(p => p.id === data.id || p.symbol === data.symbol);
-      if (!currentPos) {
-        onClose();
-        return;
-      }
-
-      // 2. Inicializace pozice a hodnot (pouze jednou při otevření)
+      if (!currentPos) { onClose(); return; }
       if (!hasInitialized.current) {
         setTradeAmount(0); setSliderVal(0); setAddAmount(0);
         setSl(data.sl || ''); setTp(data.tp || '');
@@ -72,12 +56,9 @@ const PositionManagerModal = ({ isOpen, onClose, onConfirm, data }) => {
         setPosition({ x: window.innerWidth - 320, y: 100 });
         hasInitialized.current = true;
       }
-    } else {
-      hasInitialized.current = false;
-    }
+    } else { hasInitialized.current = false; }
   }, [isOpen, data, positions, onClose]);
 
-  // --- ŽIVÁ DATA ---
   const liveItem = stocks?.find(s => s.symbol === data?.symbol) || crypto?.find(c => c.symbol === data?.symbol);
   const currentPrice = liveItem?.liveTicks?.length
     ? liveItem.liveTicks[liveItem.liveTicks.length - 1].close
@@ -85,26 +66,18 @@ const PositionManagerModal = ({ isOpen, onClose, onConfirm, data }) => {
 
   if (!isOpen || !data) return null;
 
-  // --- MOUSE DRAG HANDLERS ---
   const handleMouseDown = (e) => {
     if (e.target.closest('button') || e.target.closest('input')) return;
     setIsDragging(true);
-    dragOffset.current = {
-      x: e.clientX - position.x,
-      y: e.clientY - position.y
-    };
+    dragOffset.current = { x: e.clientX - position.x, y: e.clientY - position.y };
   };
 
   useEffect(() => {
     const handleMouseMove = (e) => {
       if (!isDragging) return;
-      setPosition({
-        x: e.clientX - dragOffset.current.x,
-        y: e.clientY - dragOffset.current.y
-      });
+      setPosition({ x: e.clientX - dragOffset.current.x, y: e.clientY - dragOffset.current.y });
     };
     const handleMouseUp = () => setIsDragging(false);
-
     if (isDragging) {
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
@@ -115,7 +88,6 @@ const PositionManagerModal = ({ isOpen, onClose, onConfirm, data }) => {
     };
   }, [isDragging]);
 
-  // --- VÝPOČTY ---
   const round3 = (num) => Math.round(num * 1000) / 1000;
   const currentPL = (currentPrice - data.price) * (activeTab === 'manage' ? tradeAmount : 0);
   const buyQty = parseFloat(addAmount || 0);
@@ -123,13 +95,11 @@ const PositionManagerModal = ({ isOpen, onClose, onConfirm, data }) => {
   const newAvgPrice = ((data.price * data.amount) + (currentPrice * buyQty)) / newTotalQty;
   const priceShift = newAvgPrice - data.price;
 
-  // --- OPRAVENÉ RRR ---
   const calculateRRR = () => {
     const stopLoss = parseFloat(sl);
     const takeProfit = parseFloat(tp);
     const entry = activeTab === 'add' ? newAvgPrice : parseFloat(data.price);
     if (!stopLoss || !takeProfit || isNaN(stopLoss) || isNaN(takeProfit)) return null;
-
     const risk = Math.abs(entry - stopLoss);
     const reward = Math.abs(takeProfit - entry);
     if (risk <= 0 || reward <= 0) return "INVALID";
@@ -153,6 +123,16 @@ const PositionManagerModal = ({ isOpen, onClose, onConfirm, data }) => {
     if (data.amount > 0) setSliderVal((rounded / data.amount) * 100);
   };
 
+  // --- LOGIKA POTVRZENÍ ---
+  const handleMainConfirm = () => {
+    // Pokud prodáváme část (manage tab a tradeAmount > 0), ukaž varování
+    if (activeTab === 'manage' && tradeAmount > 0) {
+      setShowPartialConfirm(true);
+    } else {
+      onConfirm({ symbol: data.symbol, id: data.id, amount: activeTab === 'manage' ? tradeAmount : parseFloat(addAmount), price: currentPrice, type: activeTab === 'manage' ? 'sell' : 'buy', sl: sl ? parseFloat(sl) : null, tp: tp ? parseFloat(tp) : null });
+    }
+  };
+
   return (
     <>
       <style>{`
@@ -161,16 +141,9 @@ const PositionManagerModal = ({ isOpen, onClose, onConfirm, data }) => {
         input[type=number] { -moz-appearance: textfield; }
       `}</style>
 
-      <div
-        className="fixed z-[200] pointer-events-none"
-        style={{ left: position.x, top: position.y }}
-      >
+      <div className="fixed z-[200] pointer-events-none" style={{ left: position.x, top: position.y }}>
         <div className={`bg-white dark:bg-slate-900 w-[280px] rounded-[2.5rem] p-6 shadow-2xl border dark:border-slate-800 pointer-events-auto transition-transform duration-200 animate-in fade-in zoom-in-95 ${isDragging ? 'scale-105 opacity-90 cursor-grabbing' : ''}`}>
-
-          <div
-            onMouseDown={handleMouseDown}
-            className="flex justify-between items-start mb-4 cursor-grab active:cursor-grabbing select-none"
-          >
+          <div onMouseDown={handleMouseDown} className="flex justify-between items-start mb-4 cursor-grab active:cursor-grabbing select-none">
             <div>
                <h2 className="text-xl font-black dark:text-white italic uppercase tracking-tighter leading-none">{data.symbol}</h2>
                <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Live Manager</span>
@@ -222,9 +195,7 @@ const PositionManagerModal = ({ isOpen, onClose, onConfirm, data }) => {
                   </div>
                   <div className="text-right flex flex-col items-end">
                     <span className="text-[7px] font-black text-slate-400 uppercase italic leading-none mb-1">New Average</span>
-                    <span className="text-[11px] font-mono font-black text-amber-500">
-                      ${newAvgPrice.toFixed(2)}
-                    </span>
+                    <span className="text-[11px] font-mono font-black text-amber-500">${newAvgPrice.toFixed(2)}</span>
                   </div>
                 </div>
               )}
@@ -258,11 +229,7 @@ const PositionManagerModal = ({ isOpen, onClose, onConfirm, data }) => {
                     rrrValue === "INVALID" ? (
                       <span className="text-rose-500 text-[9px] uppercase tracking-tighter animate-pulse">Invalid Plan</span>
                     ) : (
-                      <>
-                        <span className="text-slate-400 font-bold">1</span>
-                        <span className="text-slate-400 text-[9px]">:</span>
-                        <span className={rrrColor}>{rrrValue}</span>
-                      </>
+                      <><span className="text-slate-400 font-bold">1</span><span className="text-slate-400 text-[9px]">:</span><span className={rrrColor}>{rrrValue}</span></>
                     )
                   ) : (
                     <span className="text-slate-500 text-[9px] uppercase tracking-tighter font-bold">Set SL & TP</span>
@@ -273,16 +240,14 @@ const PositionManagerModal = ({ isOpen, onClose, onConfirm, data }) => {
 
             <div className="flex flex-col gap-2">
               <button
-                onClick={() => onConfirm({ symbol: data.symbol, id: data.id, amount: activeTab === 'manage' ? tradeAmount : parseFloat(addAmount), price: currentPrice, type: activeTab === 'manage' ? 'sell' : 'buy', sl: sl ? parseFloat(sl) : null, tp: tp ? parseFloat(tp) : null })}
+                onClick={handleMainConfirm}
                 className={`w-full py-4 rounded-xl font-black uppercase text-[9px] tracking-[0.2em] text-white shadow-lg active:scale-95 transition-all ${activeTab === 'manage' ? 'bg-blue-600 shadow-blue-500/20' : 'bg-emerald-500 shadow-emerald-500/20'}`}
               >
                 Confirm Changes
               </button>
-
               <button onClick={() => setShowCancelConfirm(true)} className="w-full py-3 rounded-xl border border-rose-500/20 text-rose-500 font-black uppercase text-[8px] tracking-widest hover:bg-rose-500/5 transition-all active:scale-95">
                 Market Exit (Full)
               </button>
-
               <button onClick={onClose} className="w-full py-2 text-[8px] font-black uppercase text-slate-400 tracking-[0.2em] hover:text-slate-600 mt-0.5">
                 Cancel / Close
               </button>
@@ -297,8 +262,20 @@ const PositionManagerModal = ({ isOpen, onClose, onConfirm, data }) => {
         onClose={() => setShowCancelConfirm(false)}
         onConfirm={() => {
           closePosition(data.id || data.symbol, currentPrice, 'FULL_CLOSE_MANUAL');
-          setShowCancelConfirm(false); // Zavře potvrzovací modal
-          onClose();            // Zavře hlavní manager
+          setShowCancelConfirm(false);
+          onClose();
+        }}
+      />
+
+      <DeleteConfirmationModal
+        isOpen={showPartialConfirm}
+        symbol={data.symbol}
+        title="Partial Close?"
+        desc={`Are you sure you want to sell ${tradeAmount} units of ${data.symbol} at market price?`}
+        onClose={() => setShowPartialConfirm(false)}
+        onConfirm={() => {
+          onConfirm({ symbol: data.symbol, id: data.id, amount: tradeAmount, price: currentPrice, type: 'sell', sl: sl ? parseFloat(sl) : null, tp: tp ? parseFloat(tp) : null });
+          setShowPartialConfirm(false);
         }}
       />
     </>
