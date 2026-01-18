@@ -2,6 +2,10 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import generateMarketData from '../../../backend/mockData';
 import { useRealTimeData } from './useRealTimeData';
 
+// IMPORT NOVÝCH MODALŮ
+import MarketOrderModal from '../components/MarketOrderModal';
+import PositionManagerModal from '../components/PositionManagerModal';
+
 const TradingContext = createContext();
 
 export const TradingProvider = ({ children }) => {
@@ -10,7 +14,27 @@ export const TradingProvider = ({ children }) => {
   const [cashBalance, setCashBalance] = useState(0);
   const [isLoaded, setIsLoaded] = useState(false);
 
+  // --- STAV PRO MODALY ---
+  const [activeModal, setActiveModal] = useState(null); // 'MARKET' | 'MANAGE' | null
+  const [modalData, setModalData] = useState(null);
+
   const { stocks, crypto } = useRealTimeData();
+
+  // --- FUNKCE PRO OVLÁDÁNÍ MODALŮ ---
+  const openMarketOrder = (symbol, type, price) => {
+    setModalData({ symbol, type, price });
+    setActiveModal('MARKET');
+  };
+
+  const openPositionManager = (position, currentPrice) => {
+    setModalData({ ...position, currentPrice });
+    setActiveModal('MANAGE');
+  };
+
+  const closeModal = () => {
+    setActiveModal(null);
+    setModalData(null);
+  };
 
   // --- AUTOMATICKÝ MONITOR SL / TP ---
   useEffect(() => {
@@ -26,23 +50,23 @@ export const TradingProvider = ({ children }) => {
 
       if (!currentPrice) return;
 
-      // Logika pro Take Profit
+      // Voláme closePosition s unikátním ID pozice pro přesnost
       if (pos.tp && currentPrice >= pos.tp) {
-        closePosition(pos.symbol, currentPrice, 'TP_EXIT');
+        closePosition(pos.id, currentPrice, 'TP_EXIT');
       }
-      // Logika pro Stop Loss
       else if (pos.sl && currentPrice <= pos.sl) {
-        closePosition(pos.symbol, currentPrice, 'SL_EXIT');
+        closePosition(pos.id, currentPrice, 'SL_EXIT');
       }
     });
   }, [stocks, crypto, positions]);
 
+  // --- INICIALIZACE MOCK DAT ---
   useEffect(() => {
     try {
       const data = generateMarketData();
       if (data?.portfolio?.assets) {
         const initialPositions = data.portfolio.assets.map(asset => ({
-          id: `mock_${asset.assetId}`,
+          id: `mock_${asset.assetId}_${Math.random().toString(36).substr(2, 5)}`,
           symbol: asset.assetId,
           amount: asset.quantity,
           price: asset.avgBuyPrice,
@@ -60,9 +84,11 @@ export const TradingProvider = ({ children }) => {
     }
   }, []);
 
+  // --- LOGIKA PRO VÝKON PŘÍKAZŮ ---
   const placeOrder = (order) => {
     setPositions(prev => {
-      const existingIdx = prev.findIndex(p => p.symbol === order.symbol);
+      // Hledáme existující pozici podle ID (pokud ho order má) nebo podle symbolu
+      const existingIdx = prev.findIndex(p => (order.id && p.id === order.id) || p.symbol === order.symbol);
       const updated = [...prev];
 
       if (existingIdx > -1) {
@@ -78,6 +104,7 @@ export const TradingProvider = ({ children }) => {
             tp: order.tp || current.tp
           };
         } else {
+          // Logika pro odprodej / snížení pozice
           const soldAmount = order.amount;
           const realizedPL = (order.price - current.price) * soldAmount;
 
@@ -107,10 +134,11 @@ export const TradingProvider = ({ children }) => {
         return updated;
       }
 
-      if (order.type === 'buy') {
+      // Otevření úplně nové pozice
+      if (order.type === 'buy' || order.type === 'sell') {
         return [...prev, {
           ...order,
-          id: `manual_${Math.random().toString(36).substr(2, 9)}`,
+          id: order.id || `manual_${Math.random().toString(36).substr(2, 9)}`,
           timestamp: new Date().toISOString()
         }];
       }
@@ -118,31 +146,59 @@ export const TradingProvider = ({ children }) => {
     });
   };
 
-  const closePosition = (symbol, exitPrice = null, exitType = 'FULL_CLOSE') => {
+  // --- OPRAVENÁ FUNKCE PRO UZAVŘENÍ POZICE ---
+  const closePosition = (idOrSymbol, exitPrice = null, exitType = 'FULL_CLOSE') => {
     setPositions(prev => {
-      const posToClose = prev.find(p => p.symbol === symbol);
-      if (posToClose) {
-        const price = exitPrice || posToClose.price;
-        const realizedPL = (price - posToClose.price) * posToClose.amount;
+      // 1. Najdeme konkrétní pozici (podle ID nebo symbolu jako fallback)
+      const posToClose = prev.find(p => p.id === idOrSymbol || p.symbol === idOrSymbol);
 
-        setHistory(h => [{
-          id: Date.now(),
-          symbol: posToClose.symbol,
-          amount: posToClose.amount,
-          buyPrice: posToClose.price,
-          sellPrice: price,
-          pl: realizedPL,
-          type: exitType,
-          timestamp: new Date().toISOString()
-        }, ...h]);
-      }
-      return prev.filter(pos => pos.symbol !== symbol);
+      if (!posToClose) return prev;
+
+      // 2. Výpočet výsledku obchodu
+      const price = exitPrice || posToClose.price;
+      const realizedPL = (price - posToClose.price) * posToClose.amount;
+
+      // 3. Zápis do historie
+      setHistory(h => [{
+        id: Date.now(),
+        symbol: posToClose.symbol,
+        amount: posToClose.amount,
+        buyPrice: posToClose.price,
+        sellPrice: price,
+        pl: realizedPL,
+        type: exitType,
+        timestamp: new Date().toISOString()
+      }, ...h]);
+
+      // 4. Odstranění z aktivních pozic pomocí unikátního ID
+      return prev.filter(pos => pos.id !== posToClose.id);
     });
   };
 
   return (
-    <TradingContext.Provider value={{ positions, history, placeOrder, closePosition, cashBalance, isLoaded }}>
+    <TradingContext.Provider value={{
+      positions, history, placeOrder, closePosition, cashBalance, isLoaded,
+      openMarketOrder, openPositionManager
+    }}>
       {children}
+
+      {/* GLOBÁLNÍ RENDEROVÁNÍ MODALŮ */}
+      {activeModal === 'MARKET' && (
+        <MarketOrderModal
+          isOpen={true}
+          onClose={closeModal}
+          onConfirm={placeOrder}
+          data={modalData}
+        />
+      )}
+      {activeModal === 'MANAGE' && (
+        <PositionManagerModal
+          isOpen={true}
+          onClose={closeModal}
+          onConfirm={placeOrder}
+          data={modalData}
+        />
+      )}
     </TradingContext.Provider>
   );
 };

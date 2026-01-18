@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createChart, ColorType, IChartApi, ISeriesApi, IPriceLine } from 'lightweight-charts';
 import { useRealTimeData } from '../services/useRealTimeData';
 import { useTrading } from '../services/TradingContext';
-import OrderConfirmation from './OrderConfirmation';
 
 interface TradingChartProps {
   symbol: string;
@@ -18,11 +17,9 @@ export default function TradingChart({ symbol }: TradingChartProps) {
   const [timeframe, setTimeframe] = useState('1s');
   const [amount, setAmount] = useState('1.0');
   const [orderType, setOrderType] = useState<'buy' | 'sell'>('buy');
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [confirmDetails, setConfirmDetails] = useState<any>(null);
 
   const { stocks, crypto } = useRealTimeData();
-  const { positions, placeOrder } = useTrading();
+  const { positions, openMarketOrder, openPositionManager } = useTrading(); // Použití globálních funkcí
 
   const item = stocks?.find(s => s.symbol === symbol) || crypto?.find(c => c.symbol === symbol);
   const symbolPositions = positions.filter(p => p.symbol === symbol);
@@ -31,7 +28,7 @@ export default function TradingChart({ symbol }: TradingChartProps) {
     ? item.liveTicks[item.liveTicks.length - 1].close
     : (item?.currentPrice || 0);
 
-  // --- VÝPOČET PRŮMĚRNÉ CENY ---
+  // --- VÝPOČET PRŮMĚRNÉ CENY PRO PREVIEW ---
   const currentHoldings = symbolPositions.reduce((sum, p) => sum + p.amount, 0);
   const currentWeightedValue = symbolPositions.reduce((sum, p) => sum + (p.amount * p.price), 0);
   const inputAmountNum = parseFloat(amount) || 0;
@@ -48,7 +45,7 @@ export default function TradingChart({ symbol }: TradingChartProps) {
     newAveragePrice = existingAverage;
   }
 
-  // --- AKTUALIZACE LINIÍ ---
+  // --- AKTUALIZACE LINIÍ V GRAFU ---
   const updateChartLines = () => {
     if (!seriesRef.current) return;
     const series = seriesRef.current;
@@ -98,7 +95,6 @@ export default function TradingChart({ symbol }: TradingChartProps) {
     return () => chart.remove();
   }, [symbol]);
 
-  // --- OPRAVA: AKTUALIZACE POSLEDNÍ SVÍČKY NA DAILY GRAFU ---
   useEffect(() => {
     if (!seriesRef.current || !item) return;
 
@@ -108,7 +104,6 @@ export default function TradingChart({ symbol }: TradingChartProps) {
       const data = [...item.dailyHistory];
       if (data.length > 0) {
         const lastCandle = { ...data[data.length - 1] };
-        // Aktualizace poslední denní svíčky reálnou cenou
         lastCandle.close = currentPrice;
         if (currentPrice > lastCandle.high) lastCandle.high = currentPrice;
         if (currentPrice < lastCandle.low) lastCandle.low = currentPrice;
@@ -119,17 +114,12 @@ export default function TradingChart({ symbol }: TradingChartProps) {
     updateChartLines();
   }, [item, timeframe, positions, currentPrice, amount, orderType]);
 
-  const handleModify = (pos: any) => {
-    setConfirmDetails({ ...pos, isLiquidate: true, livePrice: currentPrice });
-    setShowConfirm(true);
-  };
-
   return (
     <div className="w-full space-y-6 text-left">
-      <OrderConfirmation isOpen={showConfirm} onClose={() => setShowConfirm(false)} onConfirm={placeOrder} details={confirmDetails || {}} />
-
       <div className="flex flex-col xl:flex-row gap-8">
         <div className="flex-grow space-y-4">
+
+          {/* HEADER */}
           <div className="flex items-center gap-4 mb-2 ml-2">
              <span className="text-2xl font-black italic dark:text-white uppercase tracking-tighter">{symbol}</span>
              <div className="flex flex-col">
@@ -140,6 +130,7 @@ export default function TradingChart({ symbol }: TradingChartProps) {
              </div>
           </div>
 
+          {/* ACTIVE POSITIONS LIST */}
           <div className="space-y-2">
             {symbolPositions.map((pos) => {
               const pnl = pos.amount * (currentPrice - pos.price);
@@ -173,7 +164,11 @@ export default function TradingChart({ symbol }: TradingChartProps) {
                        </div>
                     </div>
                   </div>
-                  <button onClick={() => handleModify(pos)} className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-blue-600 dark:hover:bg-blue-600 text-slate-500 dark:text-slate-400 hover:text-white rounded-xl text-[8px] font-black uppercase tracking-widest transition-all">
+                  {/* Tlačítko Manage nyní volá globální openPositionManager */}
+                  <button
+                    onClick={() => openPositionManager(pos, currentPrice)}
+                    className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-blue-600 dark:hover:bg-blue-600 text-slate-500 dark:text-slate-400 hover:text-white rounded-xl text-[8px] font-black uppercase tracking-widest transition-all"
+                  >
                     Manage
                   </button>
                 </div>
@@ -181,6 +176,7 @@ export default function TradingChart({ symbol }: TradingChartProps) {
             })}
           </div>
 
+          {/* CHART AREA */}
           <div className="relative group">
             <div className="absolute top-4 left-4 z-10 flex bg-white/80 dark:bg-slate-900/80 backdrop-blur-md p-1 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xl">
               {['1s', '1d'].map(tf => (
@@ -193,15 +189,21 @@ export default function TradingChart({ symbol }: TradingChartProps) {
           </div>
         </div>
 
+        {/* SIDEBAR EXECUTION PANEL */}
         <div className="w-full xl:w-80 bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-xl self-start sticky top-4">
           <div className="grid grid-cols-2 gap-2 p-1.5 bg-slate-100 dark:bg-slate-950 rounded-2xl mb-8 border dark:border-slate-800">
             <button onClick={() => setOrderType('buy')} className={`py-4 rounded-xl text-[10px] font-black uppercase transition-all ${orderType === 'buy' ? 'bg-emerald-500 text-white shadow-lg' : 'text-slate-400'}`}>Buy</button>
             <button onClick={() => setOrderType('sell')} className={`py-4 rounded-xl text-[10px] font-black uppercase transition-all ${orderType === 'sell' ? 'bg-rose-500 text-white shadow-lg' : 'text-slate-400'}`}>Sell</button>
           </div>
+
           <div className="space-y-6 mb-8 text-left">
             <div className="space-y-2">
               <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Market Quantity</label>
-              <input type="number" step="0.001" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 rounded-2xl px-6 py-5 text-sm font-mono dark:text-white outline-none focus:border-blue-500/50 transition-colors" />
+              <input
+                type="number" step="0.001" value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 rounded-2xl px-6 py-5 text-sm font-mono dark:text-white outline-none focus:border-blue-500/50 transition-colors"
+              />
             </div>
             <div className="bg-slate-50 dark:bg-slate-950/50 rounded-[2rem] p-5 border border-slate-100 dark:border-slate-800/50 space-y-3">
               <div className="flex justify-between items-center text-left">
@@ -216,7 +218,12 @@ export default function TradingChart({ symbol }: TradingChartProps) {
               )}
             </div>
           </div>
-          <button onClick={() => { setConfirmDetails({ symbol, amount: parseFloat(amount), price: currentPrice, type: orderType, isLiquidate: false }); setShowConfirm(true); }} className={`w-full py-5 rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] text-white shadow-2xl transition-all transform active:scale-95 ${orderType === 'buy' ? 'bg-emerald-500 shadow-emerald-500/20' : 'bg-rose-500 shadow-rose-500/20'}`}>
+
+          {/* Tlačítko Execute nyní volá globální openMarketOrder */}
+          <button
+            onClick={() => openMarketOrder(symbol, orderType, currentPrice)}
+            className={`w-full py-5 rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] text-white shadow-2xl transition-all transform active:scale-95 ${orderType === 'buy' ? 'bg-emerald-500 shadow-emerald-500/20' : 'bg-rose-500 shadow-rose-500/20'}`}
+          >
              Execute {orderType}
           </button>
         </div>
