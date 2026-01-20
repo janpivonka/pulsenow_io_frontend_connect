@@ -1,14 +1,18 @@
 import React, { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useRealTimeData } from '../services/useRealTimeData';
 import { useTrading } from '../services/TradingContext';
 import PageHeader from '../components/PageHeader';
+import Modal from '../components/Modal'; // Import tvého modalu
 
 const Portfolio = () => {
+  const navigate = useNavigate();
   const { stocks = [], crypto = [], portfolio = {}, aiCoreInsights = [] } = useRealTimeData();
   const { positions: contextPositions = [], history = [] } = useTrading();
 
-  // Stav pro rozbalení historie
+  // STAVY
   const [showAllHistory, setShowAllHistory] = useState(false);
+  const [selectedAsset, setSelectedAsset] = useState(null); // Pro otevírání modalu
 
   const stats = useMemo(() => {
     const allMarketAssets = [...stocks, ...crypto];
@@ -35,7 +39,9 @@ const Portfolio = () => {
         currentValue,
         profitLoss: currentValue - positionCost,
         plPercent: item.price !== 0 ? ((currentPrice - item.price) / item.price) * 100 : 0,
-        tradeNumber: item.tradeNumber
+        tradeNumber: item.tradeNumber,
+        // Uložíme si referenci na full data pro modal
+        fullData: marketData
       };
     }).sort((a, b) => b.tradeNumber - a.tradeNumber);
 
@@ -75,7 +81,6 @@ const Portfolio = () => {
     );
   };
 
-  // Logika pro zobrazení historie
   const displayedHistory = showAllHistory ? history : history.slice(0, 3);
 
   if (!stats) return null;
@@ -140,7 +145,11 @@ const Portfolio = () => {
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
               {stats.myPositions.map((pos) => (
-                <tr key={pos.key} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors group">
+                <tr
+                  key={pos.key}
+                  onClick={() => setSelectedAsset(pos.fullData || pos)} // NOVÁ FUNKCE
+                  className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors group cursor-pointer" // PŘIDÁN CURSOR
+                >
                   <td className="px-8 py-6">
                     <div className="flex items-center gap-4">
                       {renderUnitTag(pos)}
@@ -218,7 +227,6 @@ const Portfolio = () => {
             </tbody>
           </table>
 
-          {/* TLAČÍTKO PRO ROZBALENÍ HISTORIE */}
           {history.length > 3 && (
             <div className="p-6 text-center bg-slate-50/50 dark:bg-slate-800/30">
               <button
@@ -240,7 +248,14 @@ const Portfolio = () => {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {aiCoreInsights.slice(0, 3).map(insight => (
-            <div key={insight.id} className="bg-slate-900 rounded-[2rem] p-8 text-white border border-slate-800 hover:border-blue-900 transition-all shadow-xl group">
+            <div
+              key={insight.id}
+              onClick={() => {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+                navigate('/alerts'); // NAVIGACE NA ALERTS
+              }}
+              className="bg-slate-900 rounded-[2rem] p-8 text-white border border-slate-800 hover:border-blue-500 hover:scale-[1.02] cursor-pointer transition-all shadow-xl group"
+            >
               <div className="flex justify-between items-start mb-6">
                 <span className="text-[8px] font-black bg-blue-600 px-2 py-0.5 rounded uppercase tracking-widest">{insight.type}</span>
                 <span className="text-[10px] font-mono text-blue-400 font-bold">{((insight.confidence || 0.9) * 100).toFixed(0)}%</span>
@@ -251,6 +266,15 @@ const Portfolio = () => {
           ))}
         </div>
       </div>
+
+      {/* RENDER MODALU */}
+      {selectedAsset && (
+        <Modal
+          item={selectedAsset}
+          type="asset"
+          onClose={() => setSelectedAsset(null)}
+        />
+      )}
     </div>
   );
 };
