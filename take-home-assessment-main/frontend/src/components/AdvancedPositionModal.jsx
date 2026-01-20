@@ -3,7 +3,7 @@ import { useTrading } from '../services/TradingContext';
 import { useRealTimeData } from '../services/useRealTimeData';
 import TradeSuccessModal from './TradeSuccessModal';
 
-const AdvancedPositionModal = ({ isOpen, onClose, onConfirm, data }) => {
+const AdvancedPositionModal = ({ isOpen, onClose, onConfirm, data, onOpenSimple }) => {
   const { positions } = useTrading();
   const { stocks, crypto } = useRealTimeData();
 
@@ -25,7 +25,7 @@ const AdvancedPositionModal = ({ isOpen, onClose, onConfirm, data }) => {
     ? liveItem.liveTicks[liveItem.liveTicks.length - 1].close
     : (liveItem?.currentPrice || data?.currentPrice || 0);
 
-  // --- PLYNULÝ POHYB (DOM Manipulace místo State) ---
+  // --- PLYNULÝ POHYB (DOM Manipulace) ---
   const handleMouseDown = (e) => {
     if (e.target.closest('button') || e.target.closest('input')) return;
     isDraggingRef.current = true;
@@ -33,20 +33,18 @@ const AdvancedPositionModal = ({ isOpen, onClose, onConfirm, data }) => {
       x: e.clientX - posRef.current.x,
       y: e.clientY - posRef.current.y
     };
-    modalRef.current.style.transition = 'none'; // Vypne animace během tažení
-    modalRef.current.style.cursor = 'grabbing';
+    if (modalRef.current) {
+      modalRef.current.style.transition = 'none';
+      modalRef.current.style.cursor = 'grabbing';
+    }
   };
 
   useEffect(() => {
     const handleMouseMove = (e) => {
       if (!isDraggingRef.current || !modalRef.current) return;
-
       const newX = e.clientX - dragOffset.current.x;
       const newY = e.clientY - dragOffset.current.y;
-
       posRef.current = { x: newX, y: newY };
-
-      // Použijeme transform pro maximální plynulost (využívá GPU)
       modalRef.current.style.transform = `translate3d(${newX}px, ${newY}px, 0)`;
     };
 
@@ -71,6 +69,7 @@ const AdvancedPositionModal = ({ isOpen, onClose, onConfirm, data }) => {
       const currentPos = positions.find(p => p.id === data.id) || data;
       let initialLevels = [...(currentPos.levels || [])];
 
+      // Pokud nejsou hladiny, vytvoříme je ze základního SL/TP z dat
       if (initialLevels.length === 0) {
         if (data.sl) initialLevels.push({ id: `sl-${Date.now()}`, price: parseFloat(data.sl), amount: currentPos.amount, displayAmount: 100, type: 'SL' });
         if (data.tp) initialLevels.push({ id: `tp-${Date.now()}`, price: parseFloat(data.tp), amount: currentPos.amount, displayAmount: 100, type: 'TP' });
@@ -79,7 +78,7 @@ const AdvancedPositionModal = ({ isOpen, onClose, onConfirm, data }) => {
       setLevels(initialLevels.sort((a, b) => b.price - a.price));
       setPrice(currentPrice.toFixed(2));
 
-      // Nastavení startovní pozice
+      // Nastavení startovní pozice (předané ze Simple modalu)
       const startX = data.initialX || (window.innerWidth / 2 - 140);
       const startY = data.initialY || 150;
       posRef.current = { x: startX, y: startY };
@@ -94,7 +93,7 @@ const AdvancedPositionModal = ({ isOpen, onClose, onConfirm, data }) => {
     if (!isOpen) {
       hasInitialized.current = false;
     }
-  }, [isOpen, data, currentPrice]);
+  }, [isOpen, data, currentPrice, positions]);
 
   const handleAddOrUpdate = (type) => {
     const priceNum = parseFloat(price);
@@ -128,7 +127,6 @@ const AdvancedPositionModal = ({ isOpen, onClose, onConfirm, data }) => {
 
   return (
     <>
-      {/* Wrapper s nulovými souřadnicemi, pozici řeší transform v modalRef */}
       <div
         ref={modalRef}
         className={`fixed top-0 left-0 z-[510] pointer-events-none select-none ${successData ? 'opacity-0 scale-95' : 'opacity-100'} transition-[opacity,scale] duration-300`}
@@ -136,7 +134,7 @@ const AdvancedPositionModal = ({ isOpen, onClose, onConfirm, data }) => {
       >
         <div className="bg-white dark:bg-slate-900 w-[280px] rounded-[2.5rem] p-6 shadow-2xl border dark:border-slate-800 pointer-events-auto">
 
-          {/* HEADER - Tady začíná drag */}
+          {/* HEADER */}
           <div onMouseDown={handleMouseDown} className="flex justify-between items-start mb-4 cursor-grab active:cursor-grabbing text-left">
             <div>
               <div className="flex items-center gap-2">
@@ -169,15 +167,45 @@ const AdvancedPositionModal = ({ isOpen, onClose, onConfirm, data }) => {
               <button onClick={() => handleAddOrUpdate('SL')} className="flex-1 bg-rose-500 py-3 rounded-xl text-white font-black text-[9px] uppercase tracking-widest shadow-lg active:scale-95 transition-all">{editingId ? 'Update' : 'Add Stop'}</button>
             </div>
 
+            {/* PŘEPÍNAČ ZPĚT DO QUICK MANAGE */}
+            <button
+              onClick={() => {
+                const currentPos = modalRef.current ? posRef.current : { x: 0, y: 0 };
+                // Extrahujeme 100% hladiny pro přenos zpět do inputů
+                const mainSl = levels.find(l => l.type === 'SL' && l.displayAmount === 100)?.price || '';
+                const mainTp = levels.find(l => l.type === 'TP' && l.displayAmount === 100)?.price || '';
+
+                onOpenSimple({
+                  ...data,
+                  initialX: currentPos.x,
+                  initialY: currentPos.y,
+                  sl: mainSl,
+                  tp: mainTp
+                }, currentPrice);
+                onClose();
+              }}
+              className="w-full py-2 bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center justify-center gap-2 group hover:bg-slate-200 dark:hover:bg-slate-800 transition-all"
+            >
+              <svg className="w-2.5 h-2.5 text-slate-400 group-hover:text-slate-600 transition-transform group-hover:-translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M11 17l-5-5m0 0l5-5m-5 5h12" />
+              </svg>
+              <span className="text-[7px] font-black text-slate-400 group-hover:text-slate-600 uppercase tracking-widest italic">Back to Quick Manage</span>
+            </button>
+
             <div className="bg-slate-50 dark:bg-slate-950 rounded-2xl border dark:border-slate-800 overflow-hidden">
               <div className="max-h-[120px] overflow-y-auto p-2 space-y-1.5 custom-scrollbar">
+                {levels.length === 0 && (
+                  <div className="py-8 text-center">
+                    <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest italic">No targets set</span>
+                  </div>
+                )}
                 {levels.map(l => (
-                  <div key={l.id} onClick={() => setEditingId(l.id) || setPrice(l.price.toString()) || setAmount(l.displayAmount.toString())} className={`flex items-center justify-between p-2.5 rounded-xl border transition-all cursor-pointer ${editingId === l.id ? 'bg-blue-100/50 dark:bg-blue-900/20 border-blue-400' : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800'}`}>
+                  <div key={l.id} onClick={() => { setEditingId(l.id); setPrice(l.price.toString()); setAmount(l.displayAmount.toString()); }} className={`flex items-center justify-between p-2.5 rounded-xl border transition-all cursor-pointer ${editingId === l.id ? 'bg-blue-100/50 dark:bg-blue-900/20 border-blue-400' : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800'}`}>
                     <div className="flex items-center gap-2">
                       <div className={`w-1 h-4 rounded-full ${l.type === 'TP' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
                       <div className="flex flex-col text-left">
                         <span className="dark:text-white font-mono font-black text-[10px] leading-none">${l.price}</span>
-                        <span className="text-[7px] font-bold text-slate-400 uppercase mt-1">{l.displayAmount}%</span>
+                        <span className="text-[7px] font-bold text-slate-400 uppercase mt-1">{l.displayAmount}% {l.type}</span>
                       </div>
                     </div>
                     <button onClick={(e) => { e.stopPropagation(); setLevels(levels.filter(x => x.id !== l.id)); }} className="text-slate-300 hover:text-rose-500 font-bold text-xs p-1">×</button>

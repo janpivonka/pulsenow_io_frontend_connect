@@ -7,17 +7,10 @@ interface TradingChartProps {
   symbol: string;
 }
 
-// Pomocná funkce pro konzistentní barvy pozic
 const getPositionColor = (id: string) => {
   const colors = [
-    '#3b82f6', // blue
-    '#8b5cf6', // violet
-    '#ec4899', // pink
-    '#f59e0b', // amber
-    '#06b6d4', // cyan
-    '#10b981', // emerald
-    '#6366f1', // indigo
-    '#f43f5e', // rose
+    '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b',
+    '#06b6d4', '#10b981', '#6366f1', '#f43f5e',
   ];
   let hash = 0;
   for (let i = 0; i < id.length; i++) {
@@ -37,7 +30,7 @@ export default function TradingChart({ symbol }: TradingChartProps) {
   const [amount, setAmount] = useState('1.000');
   const [orderType, setOrderType] = useState<'buy' | 'sell'>('buy');
   const [isExpanded, setIsExpanded] = useState(true);
-  const [showLines, setShowLines] = useState(true); // Nový stav pro viditelnost linií
+  const [showLines, setShowLines] = useState(true);
 
   const { stocks, crypto } = useRealTimeData();
   const { positions, openMarketOrder, openPositionManager, openAdvancedManager } = useTrading();
@@ -73,7 +66,6 @@ export default function TradingChart({ symbol }: TradingChartProps) {
     if (!seriesRef.current) return;
     const series = seriesRef.current;
 
-    // Vždy nejdřív vyčistit staré linie
     activeLinesRef.current.forEach(line => series.removePriceLine(line));
     activeLinesRef.current = [];
 
@@ -82,7 +74,6 @@ export default function TradingChart({ symbol }: TradingChartProps) {
       previewLineRef.current = null;
     }
 
-    // Pokud je zobrazení vypnuté, končíme zde (linie zůstanou smazané)
     if (!showLines) return;
 
     symbolPositions.forEach((pos, index) => {
@@ -99,29 +90,43 @@ export default function TradingChart({ symbol }: TradingChartProps) {
         title: `${unitLabel} ENTRY`
       }));
 
-      // 2. SL/TP hladiny
-      const displayLevels = pos.levels && pos.levels.length > 0
+      // 2. SL/TP hladiny s inteligentním řazením
+      const rawLevels = pos.levels && pos.levels.length > 0
         ? pos.levels
         : [
             ...(pos.sl ? [{ price: pos.sl, type: 'SL', displayAmount: 100 }] : []),
             ...(pos.tp ? [{ price: pos.tp, type: 'TP', displayAmount: 100 }] : [])
           ];
 
-      let tpCounter = 0;
-      let slCounter = 0;
+      // TP: Vzestupně (nejbližší k ceně zdola nahoru pro Long)
+      const sortedTPs = [...rawLevels]
+        .filter((l: any) => l.type === 'TP')
+        .sort((a: any, b: any) => a.price - b.price);
 
-      displayLevels.forEach((l: any) => {
-        const isTP = l.type === 'TP';
-        if (isTP) tpCounter++; else slCounter++;
-        const subIndex = isTP ? tpCounter : slCounter;
+      // SL: Sestupně (nejbližší k ceně shora dolů pro Long)
+      const sortedSLs = [...rawLevels]
+        .filter((l: any) => l.type === 'SL')
+        .sort((a: any, b: any) => b.price - a.price);
 
+      sortedTPs.forEach((l: any, i: number) => {
         activeLinesRef.current.push(series.createPriceLine({
           price: l.price,
-          color: isTP ? '#10b981' : '#ef4444',
+          color: '#10b981',
           lineWidth: 1,
           lineStyle: 2,
           axisLabelVisible: true,
-          title: `${unitLabel} ${l.type}${subIndex} (${l.displayAmount}%)`
+          title: `${unitLabel} TP${i + 1} (${l.displayAmount || 100}%)`
+        }));
+      });
+
+      sortedSLs.forEach((l: any, i: number) => {
+        activeLinesRef.current.push(series.createPriceLine({
+          price: l.price,
+          color: '#ef4444',
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: `${unitLabel} SL${i + 1} (${l.displayAmount || 100}%)`
         }));
       });
     });
@@ -163,7 +168,7 @@ export default function TradingChart({ symbol }: TradingChartProps) {
       }
     }
     updateChartLines();
-  }, [item, timeframe, positions, currentPrice, amount, orderType, showLines]); // Přidáno showLines do závislostí
+  }, [item, timeframe, positions, currentPrice, amount, orderType, showLines]);
 
   return (
     <div className="w-full space-y-6 text-left">
@@ -204,16 +209,18 @@ export default function TradingChart({ symbol }: TradingChartProps) {
                 const pnl = pos.amount * (currentPrice - pos.price);
                 const posColor = getPositionColor(pos.id);
 
-                const combinedLevels = pos.levels && pos.levels.length > 0
+                // Logika pro "Next Targets" v UI seznamu
+                const rawLevels = pos.levels && pos.levels.length > 0
                   ? pos.levels
                   : [
-                      ...(pos.sl ? [{ id: 'sl', price: pos.sl, type: 'SL' }] : []),
-                      ...(pos.tp ? [{ id: 'tp', price: pos.tp, type: 'TP' }] : [])
+                      ...(pos.sl ? [{ price: pos.sl, type: 'SL' }] : []),
+                      ...(pos.tp ? [{ price: pos.tp, type: 'TP' }] : [])
                     ];
 
-                const nextTargets = [...combinedLevels]
-                  .sort((a, b) => Math.abs(a.price - currentPrice) - Math.abs(b.price - currentPrice))
-                  .slice(0, 2);
+                // Najdeme nejbližší TP a nejbližší SL
+                const nextTP = [...rawLevels].filter(l => l.type === 'TP').sort((a,b) => a.price - b.price)[0];
+                const nextSL = [...rawLevels].filter(l => l.type === 'SL').sort((a,b) => b.price - a.price)[0];
+                const displayTargets = [nextTP, nextSL].filter(Boolean);
 
                 return (
                   <div key={pos.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[1.8rem] p-4 flex items-center justify-between shadow-sm border-l-4 transition-all" style={{ borderLeftColor: posColor }}>
@@ -232,12 +239,12 @@ export default function TradingChart({ symbol }: TradingChartProps) {
                       </div>
 
                       <div className="flex flex-col border-l dark:border-slate-800 pl-5 min-w-[100px]">
-                        <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Next Targets</span>
+                        <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Closest Targets</span>
                         <div className="flex gap-1 mt-1">
-                          {nextTargets.length > 0 ? (
-                            nextTargets.map((l: any, i: number) => (
+                          {displayTargets.length > 0 ? (
+                            displayTargets.map((l: any, i: number) => (
                               <span key={i} className={`text-[8px] font-black px-1.5 py-0.5 rounded-md ${l.type === 'TP' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
-                                ${l.price.toFixed(2)}
+                                {l.type}1: ${l.price.toFixed(2)}
                               </span>
                             ))
                           ) : (
@@ -266,7 +273,6 @@ export default function TradingChart({ symbol }: TradingChartProps) {
           {/* CHART AREA */}
           <div className="relative group">
             <div className="absolute top-4 left-4 z-10 flex gap-2">
-              {/* TIMEFRAME SELECTOR */}
               <div className="flex bg-white/80 dark:bg-slate-900/80 backdrop-blur-md p-1 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xl">
                 {['1s', '1d'].map(tf => (
                   <button key={tf} onClick={() => setTimeframe(tf)} className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase transition-all ${timeframe === tf ? 'bg-blue-500 text-white shadow-lg' : 'text-slate-500 dark:text-slate-400'}`}>
@@ -275,7 +281,6 @@ export default function TradingChart({ symbol }: TradingChartProps) {
                 ))}
               </div>
 
-              {/* TOGGLE LINES BUTTON */}
               <button
                 onClick={() => setShowLines(!showLines)}
                 className={`flex items-center gap-2 px-3 py-1 rounded-xl text-[9px] font-black uppercase transition-all backdrop-blur-md border shadow-xl ${showLines ? 'bg-blue-500 text-white border-blue-400' : 'bg-white/80 dark:bg-slate-900/80 text-slate-500 border-slate-200 dark:border-slate-800'}`}

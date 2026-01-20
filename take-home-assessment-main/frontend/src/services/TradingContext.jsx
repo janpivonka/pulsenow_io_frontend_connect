@@ -16,7 +16,6 @@ export const TradingProvider = ({ children }) => {
   const [history, setHistory] = useState([]);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // Stavy pro okna (podpora více oken najednou)
   const [openManagers, setOpenManagers] = useState([]);
   const [openAdvancedManagers, setOpenAdvancedManagers] = useState([]);
 
@@ -31,7 +30,16 @@ export const TradingProvider = ({ children }) => {
 
   const { stocks, crypto } = useRealTimeData();
 
-  // --- BUFFER PRO ZPRÁVY (SUCCESS MODAL) ---
+  // --- HELPER PRO ZAVÍRÁNÍ ---
+  const closeManager = useCallback((id) => {
+    setOpenManagers(prev => prev.filter(m => m.id !== id));
+  }, []);
+
+  const closeAdvancedManager = useCallback((id) => {
+    setOpenAdvancedManagers(prev => prev.filter(m => m.id !== id));
+  }, []);
+
+  // --- SPOUŠTĚČ ÚSPĚCHU (Success Toast) ---
   const triggerSuccess = useCallback((msgs) => {
     const newMsgs = Array.isArray(msgs) ? msgs : [msgs];
     pendingMessagesRef.current = [...pendingMessagesRef.current, ...newMsgs];
@@ -47,52 +55,40 @@ export const TradingProvider = ({ children }) => {
         return true;
       });
 
-      setSuccessData(uniqueData);
-      setShowSuccess(true);
+      if (uniqueData.length > 0) {
+        setSuccessData(uniqueData);
+        setShowSuccess(true);
+      }
+
       pendingMessagesRef.current = [];
       successTimeoutRef.current = null;
     }, 150);
   }, []);
 
-  // --- ZAVÍRÁNÍ MANAŽERŮ ---
-  const closeManager = useCallback((id) => {
-    setOpenManagers(prev => prev.filter(m => m.id !== id));
-  }, []);
-
-  const closeAdvancedManager = useCallback((id) => {
-    setOpenAdvancedManagers(prev => prev.filter(m => m.id !== id));
-  }, []);
-
-  // --- LOGIKA OBCHODOVÁNÍ (placeOrder řeší nákup/prodej a úpravu pozice) ---
   const { placeOrder, logTrade, tradeCounter } = useTradingLogic(
     setPositions, setHistory, triggerSuccess, closeManager
   );
 
-  // --- AKTUALIZACE POZICE (Ukládání SL/TP levelů a dat z Advanced Modalu) ---
+  // updatePosition zůstává pro interní potřeby,
+  // ale pro akce z modalu budeme preferovat placeOrder kvůli success oknu.
   const updatePosition = useCallback((updatedData) => {
     setPositions(prev => prev.map(p =>
       p.id === updatedData.id
-        ? {
-            ...p,
-            ...updatedData, // Propíše levels, sl, tp, i případně změněnou cenu/množství
-            levels: updatedData.levels || p.levels || []
-          }
+        ? { ...p, ...updatedData, levels: updatedData.levels || p.levels || [] }
         : p
     ));
   }, []);
 
-  // --- UZAVÍRÁNÍ POZIC ---
   const closePosition = useCallback((id, exitPrice, exitType = 'FULL_CLOSE', levelData = null) => {
     setPositions(prev => {
       const target = prev.find(p => p.id === id);
       if (!target) return prev;
-
       const amountToClose = levelData ? Math.min(levelData.amount, target.amount) : target.amount;
       const pnl = (Number(exitPrice) - target.price) * amountToClose;
       const timestamp = new Date().toISOString();
 
       logTrade({
-        id: `${levelData ? 'part' : 'full'}_${id}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        id: `${levelData ? 'part' : 'full'}_${id}_${Date.now()}`,
         displayId: target.tradeNumber,
         symbol: target.symbol,
         amount: amountToClose,
@@ -110,25 +106,18 @@ export const TradingProvider = ({ children }) => {
       });
 
       const remainingAmount = target.amount - amountToClose;
-
       if (remainingAmount > 0.00000001) {
-        return prev.map(p => {
-          if (p.id === id) {
-            return {
-              ...p,
-              amount: remainingAmount,
-              levels: p.levels ? p.levels.filter(l => l.id !== levelData?.id) : []
-            };
-          }
-          return p;
-        });
+        return prev.map(p => (p.id === id ? {
+          ...p,
+          amount: remainingAmount,
+          levels: p.levels ? p.levels.filter(l => l.id !== levelData?.id) : []
+        } : p));
       }
 
-      // Pokud je pozice zcela uzavřena
       setTimeout(() => {
         closeManager(id);
         closeAdvancedManager(id);
-        setTimeout(() => isClosingRef.current.delete(id), 1000);
+        isClosingRef.current.delete(id);
       }, 500);
 
       return prev.filter(p => p.id !== id);
@@ -137,7 +126,32 @@ export const TradingProvider = ({ children }) => {
 
   useAutoMonitoring(positions, stocks, crypto, isClosingRef, closePosition);
 
-  // Inicializace mock dat
+  const openPositionManager = useCallback((pos, price) => {
+    setOpenAdvancedManagers(prev => prev.filter(m => m.id !== pos.id));
+    setOpenManagers(prev => {
+      if (prev.some(m => m.id === pos.id)) return prev;
+      return [...prev, {
+        ...pos,
+        currentPrice: price,
+        initialX: pos.initialX || (window.innerWidth - 380),
+        initialY: pos.initialY || 80
+      }];
+    });
+  }, []);
+
+  const openAdvancedManager = useCallback((pos, price) => {
+    setOpenManagers(prev => prev.filter(m => m.id !== pos.id));
+    setOpenAdvancedManagers(prev => {
+      if (prev.some(m => m.id === pos.id)) return prev;
+      return [...prev, {
+        ...pos,
+        currentPrice: price || pos.currentPrice,
+        initialX: pos.initialX || (window.innerWidth / 2 - 150),
+        initialY: pos.initialY || 150
+      }];
+    });
+  }, []);
+
   useEffect(() => {
     if (initializedRef.current) return;
     initializedRef.current = true;
@@ -156,38 +170,15 @@ export const TradingProvider = ({ children }) => {
     setIsLoaded(true);
   }, [tradeCounter]);
 
-  // Pomocná funkce pro otevření Advanced Modalu (použitá v returnu i v provideru)
-  const openAdvanced = useCallback((pos, price) => {
-    if (openAdvancedManagers.some(m => m.id === pos.id)) return;
-    setOpenAdvancedManagers(prev => [...prev, {
-      ...pos,
-      currentPrice: price || pos.currentPrice,
-      initialX: window.innerWidth / 2 - 150,
-      initialY: 150 + (openAdvancedManagers.length * 20)
-    }]);
-  }, [openAdvancedManagers]);
-
   return (
     <TradingContext.Provider value={{
       positions, history, placeOrder, closePosition, isLoaded, updatePosition,
       openMarketOrder: (symbol, type, price) => setActiveMarketModal({ symbol, type, price }),
-
-      // Otevírání Position Managera (Add / Close)
-      openPositionManager: (pos, price) => {
-        if (openManagers.some(m => m.id === pos.id)) return;
-        setOpenManagers(prev => [...prev, {
-          ...pos, currentPrice: price,
-          initialX: window.innerWidth - 380 - (openManagers.length * 20),
-          initialY: 80 + (openManagers.length * 20)
-        }]);
-      },
-
-      // Otevírání Advanced Managera (Manage)
-      openAdvancedManager: openAdvanced
+      openPositionManager,
+      openAdvancedManager
     }}>
       {children}
 
-      {/* MODÁLY PRO TRŽNÍ PŘÍKAZY */}
       {activeMarketModal && (
         <MarketOrderModal
           isOpen onClose={() => setActiveMarketModal(null)}
@@ -196,45 +187,42 @@ export const TradingProvider = ({ children }) => {
         />
       )}
 
-      {/* MODÁLY PRO ADD / REDUCE (Quick Actions) */}
+      {/* RENDER SIMPLE MANAGERS */}
       {openManagers.map(m => (
         <PositionManagerModal
           key={m.id}
           isOpen
           onClose={() => closeManager(m.id)}
           onConfirm={(updatedData) => {
-            // Pokud byla provedena změna množství (nákup/prodej), použijeme placeOrder (v useTradingLogic)
-            // Pokud jen změna SL/TP, použijeme updatePosition
-            if (updatedData.operationType === 'ADD' || updatedData.operationType === 'REDUCE') {
-              placeOrder(updatedData);
-            } else {
-              updatePosition(updatedData);
-            }
+            // ZMĚNA: Vše posíláme do placeOrder, aby proběhla kontrola změn
+            // v useTradingLogic a vyvolal se Success Modal.
+            placeOrder(updatedData);
           }}
           data={m}
-          onOpenAdvanced={(tradeData) => {
-            closeManager(tradeData.id); // Zavřít jednoduchý manager
-            openAdvanced(tradeData, tradeData.currentPrice); // Otevřít advanced manager
-          }}
+          onOpenAdvanced={(tradeData) => openAdvancedManager(tradeData, tradeData.currentPrice)}
         />
       ))}
 
-      {/* MODÁLY PRO STRATEGII (Advanced Plan) */}
+      {/* RENDER ADVANCED MANAGERS */}
       {openAdvancedManagers.map(m => (
         <AdvancedPositionModal
           key={m.id}
           isOpen
           onClose={() => closeAdvancedManager(m.id)}
           onConfirm={(finalData) => {
-            updatePosition(finalData); // Advanced modal vždy ukládá do pozice pole levels
+            // ZMĚNA: I zde používáme placeOrder pro vyvolání success hlášení
+            placeOrder(finalData);
             closeAdvancedManager(m.id);
           }}
           data={m}
+          onOpenSimple={(tradeData, price) => openPositionManager(tradeData, price)}
         />
       ))}
 
       <TradeSuccessModal
-        isOpen={showSuccess} onClose={() => setShowSuccess(false)} data={successData}
+        isOpen={showSuccess}
+        onClose={() => setShowSuccess(false)}
+        data={successData}
       />
     </TradingContext.Provider>
   );
