@@ -13,6 +13,7 @@ const TradingContext = createContext();
 
 export const TradingProvider = ({ children }) => {
   const [positions, setPositions] = useState([]);
+  const [pendingOrders, setPendingOrders] = useState([]);
   const [history, setHistory] = useState([]);
   const [isLoaded, setIsLoaded] = useState(false);
 
@@ -30,7 +31,6 @@ export const TradingProvider = ({ children }) => {
 
   const { stocks, crypto } = useRealTimeData();
 
-  // --- HELPER PRO ZAVÍRÁNÍ ---
   const closeManager = useCallback((id) => {
     setOpenManagers(prev => prev.filter(m => m.id !== id));
   }, []);
@@ -39,7 +39,6 @@ export const TradingProvider = ({ children }) => {
     setOpenAdvancedManagers(prev => prev.filter(m => m.id !== id));
   }, []);
 
-  // --- SPOUŠTĚČ ÚSPĚCHU (Success Toast) ---
   const triggerSuccess = useCallback((msgs) => {
     const newMsgs = Array.isArray(msgs) ? msgs : [msgs];
     pendingMessagesRef.current = [...pendingMessagesRef.current, ...newMsgs];
@@ -65,12 +64,100 @@ export const TradingProvider = ({ children }) => {
     }, 150);
   }, []);
 
-  const { placeOrder, logTrade, tradeCounter } = useTradingLogic(
+  const { placeOrder: logicPlaceOrder, logTrade, tradeCounter } = useTradingLogic(
     setPositions, setHistory, triggerSuccess, closeManager
   );
 
-  // updatePosition zůstává pro interní potřeby,
-  // ale pro akce z modalu budeme preferovat placeOrder kvůli success oknu.
+  // --- OPRAVENÝ PLACE ORDER (MARKET vs LIMIT) ---
+  const placeOrder = useCallback((order) => {
+    // 1. Logika pro uložení LIMITNÍHO příkazu
+    if (order.isLimit && order.limitPrice && !order.id) {
+      const amountVal = Number(order.amount);
+      const priceVal = Number(order.limitPrice);
+
+      if (isNaN(amountVal) || isNaN(priceVal)) return;
+
+      const newPending = {
+        symbol: order.symbol,
+        type: order.type,
+        amount: amountVal,
+        price: priceVal, // Pro vnitřní logiku a graf používáme 'price'
+        id: `pending_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        timestamp: new Date().toISOString(),
+        isLimit: true
+      };
+
+      setPendingOrders(prev => [...prev, newPending]);
+      triggerSuccess({
+        symbol: order.symbol,
+        pl: 0,
+        type: `LIMIT ${order.type.toUpperCase()} SET AT $${priceVal.toFixed(2)}`
+      });
+      return;
+    }
+
+    // 2. Logika pro MARKET nebo UPDATE (Očištění od Limit parametrů)
+    // useTradingLogic nesmí dostat isLimit: true, jinak nevytvoří novou pozici
+    const { isLimit, limitPrice, ...cleanOrder } = order;
+    logicPlaceOrder({
+      ...cleanOrder,
+      amount: Number(cleanOrder.amount),
+      price: Number(cleanOrder.price)
+    });
+  }, [logicPlaceOrder, triggerSuccess]);
+
+  // --- OPRAVENÁ AUTOMATICKÁ EXEKUCE ---
+  useEffect(() => {
+    if (!pendingOrders || pendingOrders.length === 0) return;
+
+    const allAssets = [...(stocks || []), ...(crypto || [])];
+    const ordersToExecute = [];
+
+    pendingOrders.forEach(order => {
+      const asset = allAssets.find(a => a.symbol === order.symbol);
+      if (!asset) return;
+
+      const currentPrice = asset.liveTicks?.length
+        ? asset.liveTicks[asset.liveTicks.length - 1].close
+        : asset.currentPrice;
+
+      if (!currentPrice || currentPrice <= 0) return;
+
+      // Definice protnutí:
+      // Buy Limit: cena klesne pod nebo na limit
+      // Sell Limit: cena stoupne nad nebo na limit
+      const isBuyTriggered = order.type === 'buy' && currentPrice <= order.price;
+      const isSellTriggered = order.type === 'sell' && currentPrice >= order.price;
+
+      if (isBuyTriggered || isSellTriggered) {
+        ordersToExecute.push(order);
+      }
+    });
+
+    if (ordersToExecute.length > 0) {
+      // 1. Odstraníme z pending stavu
+      const executedIds = ordersToExecute.map(o => o.id);
+      setPendingOrders(prev => prev.filter(p => !executedIds.includes(p.id)));
+
+      // 2. Provedeme exekuci do ostrých pozic
+      ordersToExecute.forEach(order => {
+        logicPlaceOrder({
+          symbol: order.symbol,
+          type: order.type,
+          amount: order.amount,
+          price: order.price, // Exekuce za cenu limitu (slippage zde simulovat nebudeme)
+          timestamp: new Date().toISOString()
+        });
+
+        triggerSuccess({
+          symbol: order.symbol,
+          pl: 0,
+          type: `LIMIT ${order.type.toUpperCase()} EXECUTED`
+        });
+      });
+    }
+  }, [stocks, crypto, pendingOrders, logicPlaceOrder, triggerSuccess]);
+
   const updatePosition = useCallback((updatedData) => {
     setPositions(prev => prev.map(p =>
       p.id === updatedData.id
@@ -172,10 +259,11 @@ export const TradingProvider = ({ children }) => {
 
   return (
     <TradingContext.Provider value={{
-      positions, history, placeOrder, closePosition, isLoaded, updatePosition,
+      positions, pendingOrders, history, placeOrder, closePosition, isLoaded, updatePosition,
       openMarketOrder: (symbol, type, price) => setActiveMarketModal({ symbol, type, price }),
       openPositionManager,
-      openAdvancedManager
+      openAdvancedManager,
+      setPendingOrders
     }}>
       {children}
 
@@ -187,30 +275,23 @@ export const TradingProvider = ({ children }) => {
         />
       )}
 
-      {/* RENDER SIMPLE MANAGERS */}
       {openManagers.map(m => (
         <PositionManagerModal
           key={m.id}
           isOpen
           onClose={() => closeManager(m.id)}
-          onConfirm={(updatedData) => {
-            // ZMĚNA: Vše posíláme do placeOrder, aby proběhla kontrola změn
-            // v useTradingLogic a vyvolal se Success Modal.
-            placeOrder(updatedData);
-          }}
+          onConfirm={(updatedData) => placeOrder(updatedData)}
           data={m}
           onOpenAdvanced={(tradeData) => openAdvancedManager(tradeData, tradeData.currentPrice)}
         />
       ))}
 
-      {/* RENDER ADVANCED MANAGERS */}
       {openAdvancedManagers.map(m => (
         <AdvancedPositionModal
           key={m.id}
           isOpen
           onClose={() => closeAdvancedManager(m.id)}
           onConfirm={(finalData) => {
-            // ZMĚNA: I zde používáme placeOrder pro vyvolání success hlášení
             placeOrder(finalData);
             closeAdvancedManager(m.id);
           }}
