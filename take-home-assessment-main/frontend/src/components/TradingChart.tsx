@@ -15,41 +15,44 @@ export default function TradingChart({ symbol }: TradingChartProps) {
   const previewLineRef = useRef<IPriceLine | null>(null);
 
   const [timeframe, setTimeframe] = useState('1s');
-  const [amount, setAmount] = useState('1.0');
+  const [amount, setAmount] = useState('1.000');
   const [orderType, setOrderType] = useState<'buy' | 'sell'>('buy');
+  const [isExpanded, setIsExpanded] = useState(true);
 
   const { stocks, crypto } = useRealTimeData();
-  const { positions, openMarketOrder, openPositionManager } = useTrading(); // Použití globálních funkcí
+  const { positions, openMarketOrder, openPositionManager } = useTrading();
 
   const item = stocks?.find(s => s.symbol === symbol) || crypto?.find(c => c.symbol === symbol);
-  const symbolPositions = positions.filter(p => p.symbol === symbol);
+  const roundTo3 = (val: number) => Math.round(val * 1000) / 1000;
+
+  const symbolPositions = positions
+    .filter(p => p.symbol === symbol)
+    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
   const currentPrice = item?.liveTicks?.length
     ? item.liveTicks[item.liveTicks.length - 1].close
     : (item?.currentPrice || 0);
 
-  // --- VÝPOČET PRŮMĚRNÉ CENY PRO PREVIEW ---
-  const currentHoldings = symbolPositions.reduce((sum, p) => sum + p.amount, 0);
-  const currentWeightedValue = symbolPositions.reduce((sum, p) => sum + (p.amount * p.price), 0);
-  const inputAmountNum = parseFloat(amount) || 0;
-  const isAddingToPosition = currentHoldings > 0 && orderType === 'buy';
+  const totalHoldings = roundTo3(symbolPositions.reduce((sum, p) => sum + p.amount, 0));
+  const totalPL = symbolPositions.reduce((sum, p) => sum + (p.amount * (currentPrice - p.price)), 0);
 
-  let newAveragePrice = currentPrice;
+  const avgEntryPrice = totalHoldings > 0
+    ? symbolPositions.reduce((sum, p) => sum + (p.amount * p.price), 0) / totalHoldings
+    : currentPrice;
+
+  const inputAmountNum = parseFloat(amount) || 0;
+  const isAddingToPosition = totalHoldings > 0 && orderType === 'buy';
+  let newAveragePrice = avgEntryPrice;
   let priceShift = 0;
-  let existingAverage = currentHoldings > 0 ? currentWeightedValue / currentHoldings : currentPrice;
 
   if (isAddingToPosition && inputAmountNum > 0) {
-    newAveragePrice = (currentWeightedValue + (inputAmountNum * currentPrice)) / (currentHoldings + inputAmountNum);
-    priceShift = newAveragePrice - existingAverage;
-  } else if (currentHoldings > 0) {
-    newAveragePrice = existingAverage;
+    newAveragePrice = ((avgEntryPrice * totalHoldings) + (currentPrice * inputAmountNum)) / (totalHoldings + inputAmountNum);
+    priceShift = newAveragePrice - avgEntryPrice;
   }
 
-  // --- AKTUALIZACE LINIÍ V GRAFU ---
   const updateChartLines = () => {
     if (!seriesRef.current) return;
     const series = seriesRef.current;
-
     activeLinesRef.current.forEach(line => series.removePriceLine(line));
     activeLinesRef.current = [];
     if (previewLineRef.current) {
@@ -57,19 +60,19 @@ export default function TradingChart({ symbol }: TradingChartProps) {
       previewLineRef.current = null;
     }
 
-    symbolPositions.forEach((pos) => {
-      const color = pos.type === 'sell' ? '#f43f5e' : '#3b82f6';
+    symbolPositions.forEach((pos, index) => {
+      const color = '#3b82f6';
       activeLinesRef.current.push(series.createPriceLine({
-        price: pos.price, color: color, lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: 'ENTRY'
+        price: pos.price, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `T${index + 1}`
       }));
       if (pos.sl) {
         activeLinesRef.current.push(series.createPriceLine({
-          price: pos.sl, color: '#ef4444', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: 'SL'
+          price: pos.sl, color: '#ef4444', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: `SL${index + 1}`
         }));
       }
       if (pos.tp) {
         activeLinesRef.current.push(series.createPriceLine({
-          price: pos.tp, color: '#10b981', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: 'TP'
+          price: pos.tp, color: '#10b981', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: `TP${index + 1}`
         }));
       }
     });
@@ -97,19 +100,18 @@ export default function TradingChart({ symbol }: TradingChartProps) {
 
   useEffect(() => {
     if (!seriesRef.current || !item) return;
-
-    if (timeframe === '1s' && item.liveTicks) {
-      seriesRef.current.setData(item.liveTicks);
-    } else if (timeframe === '1d' && item.dailyHistory) {
-      const data = [...item.dailyHistory];
-      if (data.length > 0) {
-        const lastCandle = { ...data[data.length - 1] };
-        lastCandle.close = currentPrice;
-        if (currentPrice > lastCandle.high) lastCandle.high = currentPrice;
-        if (currentPrice < lastCandle.low) lastCandle.low = currentPrice;
-        data[data.length - 1] = lastCandle;
+    const history = timeframe === '1s' ? item.liveTicks : item.dailyHistory;
+    if (history && history.length > 0) {
+      seriesRef.current.setData(history);
+      if (currentPrice > 0) {
+        const lastStaticBar = history[history.length - 1];
+        seriesRef.current.update({
+          ...lastStaticBar,
+          close: currentPrice,
+          high: Math.max(lastStaticBar.high, currentPrice),
+          low: Math.min(lastStaticBar.low, currentPrice),
+        });
       }
-      seriesRef.current.setData(data);
     }
     updateChartLines();
   }, [item, timeframe, positions, currentPrice, amount, orderType]);
@@ -118,65 +120,68 @@ export default function TradingChart({ symbol }: TradingChartProps) {
     <div className="w-full space-y-6 text-left">
       <div className="flex flex-col xl:flex-row gap-8">
         <div className="flex-grow space-y-4">
+          <div className="flex items-center justify-between mb-2 ml-2">
+            <div className="flex items-center gap-4">
+              <span className="text-2xl font-black italic dark:text-white uppercase tracking-tighter">{symbol}</span>
+              <div className="flex flex-col">
+                <span className={`text-lg font-mono font-bold leading-none ${item?.change >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                  ${currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </span>
+                <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-0.5 font-mono">Real-time Feed</span>
+              </div>
+            </div>
 
-          {/* HEADER */}
-          <div className="flex items-center gap-4 mb-2 ml-2">
-             <span className="text-2xl font-black italic dark:text-white uppercase tracking-tighter">{symbol}</span>
-             <div className="flex flex-col">
-               <span className={`text-lg font-mono font-bold leading-none ${item?.change >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                 ${currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-               </span>
-               <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Live Data Feed</span>
-             </div>
+            {symbolPositions.length > 0 && (
+              <div className="flex gap-6 bg-slate-50 dark:bg-slate-900/50 px-6 py-2 rounded-2xl border dark:border-slate-800">
+                <div className="flex flex-col">
+                  <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Total P/L</span>
+                  <span className={`text-xs font-black italic ${totalPL >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                    {totalPL >= 0 ? '+' : ''}${Math.abs(totalPL).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <button onClick={() => setIsExpanded(!isExpanded)} className="text-[9px] font-black uppercase text-blue-500 hover:text-blue-400 transition-colors">
+                  {isExpanded ? 'Hide Details' : `Show ${symbolPositions.length} Positions`}
+                </button>
+              </div>
+            )}
           </div>
 
-          {/* ACTIVE POSITIONS LIST */}
-          <div className="space-y-2">
-            {symbolPositions.map((pos) => {
-              const pnl = pos.amount * (currentPrice - pos.price);
-              const pnlPct = (pnl / (pos.amount * pos.price)) * 100;
-              return (
-                <div key={pos.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex items-center justify-between shadow-sm border-l-4 border-l-blue-500">
-                  <div className="flex items-center gap-6">
-                    <div className="flex flex-col min-w-[80px]">
-                      <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Holdings</span>
-                      <span className="text-sm font-black dark:text-white italic leading-none mt-1">{pos.amount.toLocaleString()} {symbol}</span>
-                    </div>
-                    <div className="flex flex-col border-l dark:border-slate-800 pl-6">
-                      <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest">P/L Tracking</span>
-                      <div className="flex items-baseline gap-2 mt-1">
-                        <span className={`text-sm font-black italic leading-none ${pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                          {pnl >= 0 ? '+' : ''}${Math.abs(pnl).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                        </span>
-                        <span className={`text-[9px] font-bold ${pnl >= 0 ? 'text-emerald-500/50' : 'text-rose-500/50'}`}>
-                          {pnlPct.toFixed(2)}%
+          {isExpanded && symbolPositions.length > 0 && (
+            <div className="space-y-2 max-h-60 overflow-y-auto pr-2 custom-scrollbar animate-in fade-in slide-in-from-top-4 duration-300">
+              {symbolPositions.map((pos, index) => {
+                const pnl = pos.amount * (currentPrice - pos.price);
+                return (
+                  <div key={pos.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex items-center justify-between shadow-sm border-l-4 border-l-blue-500 hover:border-l-blue-400 transition-all">
+                    <div className="flex items-center gap-6">
+                      <div className="flex flex-col min-w-[70px]">
+                        <span className="text-[7px] font-black text-blue-500 uppercase tracking-widest">Trade #{index + 1}</span>
+                        <span className="text-sm font-black dark:text-white italic leading-none mt-1">
+                          {roundTo3(pos.amount)} <span className="text-[10px] opacity-50 not-italic">{symbol}</span>
                         </span>
                       </div>
+                      <div className="flex flex-col border-l dark:border-slate-800 pl-6 min-w-[90px]">
+                        <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Profit/Loss</span>
+                        <span className={`text-sm font-black italic leading-none mt-1 ${pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                          {pnl >= 0 ? '+' : ''}${Math.abs(pnl).toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="flex flex-col border-l dark:border-slate-800 pl-6">
+                        <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Entry</span>
+                        <span className="text-sm font-mono font-bold dark:text-white leading-none mt-1">${pos.price.toFixed(2)}</span>
+                      </div>
                     </div>
-                    <div className="flex gap-4 border-l dark:border-slate-800 pl-6 text-left">
-                       <div className="flex flex-col">
-                          <span className="text-[7px] font-black text-rose-500 uppercase tracking-widest">SL</span>
-                          <span className="text-[10px] font-mono font-bold dark:text-slate-400 leading-none mt-1">{pos.sl ? `$${pos.sl}` : '—'}</span>
-                       </div>
-                       <div className="flex flex-col">
-                          <span className="text-[7px] font-black text-emerald-500 uppercase tracking-widest">TP</span>
-                          <span className="text-[10px] font-mono font-bold dark:text-slate-400 leading-none mt-1">{pos.tp ? `$${pos.tp}` : '—'}</span>
-                       </div>
-                    </div>
+                    <button
+                      onClick={() => openPositionManager({ ...pos, displayIndex: index + 1 }, currentPrice)}
+                      className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-blue-600 dark:hover:bg-blue-600 text-slate-500 dark:text-slate-400 hover:text-white rounded-xl text-[8px] font-black uppercase tracking-widest transition-all shadow-sm"
+                    >
+                      Manage
+                    </button>
                   </div>
-                  {/* Tlačítko Manage nyní volá globální openPositionManager */}
-                  <button
-                    onClick={() => openPositionManager(pos, currentPrice)}
-                    className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-blue-600 dark:hover:bg-blue-600 text-slate-500 dark:text-slate-400 hover:text-white rounded-xl text-[8px] font-black uppercase tracking-widest transition-all"
-                  >
-                    Manage
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
 
-          {/* CHART AREA */}
           <div className="relative group">
             <div className="absolute top-4 left-4 z-10 flex bg-white/80 dark:bg-slate-900/80 backdrop-blur-md p-1 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xl">
               {['1s', '1d'].map(tf => (
@@ -189,41 +194,18 @@ export default function TradingChart({ symbol }: TradingChartProps) {
           </div>
         </div>
 
-        {/* SIDEBAR EXECUTION PANEL */}
         <div className="w-full xl:w-80 bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-xl self-start sticky top-4">
           <div className="grid grid-cols-2 gap-2 p-1.5 bg-slate-100 dark:bg-slate-950 rounded-2xl mb-8 border dark:border-slate-800">
             <button onClick={() => setOrderType('buy')} className={`py-4 rounded-xl text-[10px] font-black uppercase transition-all ${orderType === 'buy' ? 'bg-emerald-500 text-white shadow-lg' : 'text-slate-400'}`}>Buy</button>
             <button onClick={() => setOrderType('sell')} className={`py-4 rounded-xl text-[10px] font-black uppercase transition-all ${orderType === 'sell' ? 'bg-rose-500 text-white shadow-lg' : 'text-slate-400'}`}>Sell</button>
           </div>
-
           <div className="space-y-6 mb-8 text-left">
             <div className="space-y-2">
               <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2">Market Quantity</label>
-              <input
-                type="number" step="0.001" value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 rounded-2xl px-6 py-5 text-sm font-mono dark:text-white outline-none focus:border-blue-500/50 transition-colors"
-              />
-            </div>
-            <div className="bg-slate-50 dark:bg-slate-950/50 rounded-[2rem] p-5 border border-slate-100 dark:border-slate-800/50 space-y-3">
-              <div className="flex justify-between items-center text-left">
-                <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Est. Avg Price</span>
-                <span className="text-xs font-mono font-bold dark:text-white">${newAveragePrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-              </div>
-              {isAddingToPosition && inputAmountNum > 0 && (
-                <div className="flex justify-between items-center pt-2 border-t dark:border-slate-800/50">
-                  <span className="text-[8px] font-black text-amber-500 uppercase tracking-widest">Preview Shift</span>
-                  <span className={`text-[10px] font-bold ${priceShift >= 0 ? 'text-rose-500' : 'text-emerald-500'}`}>{priceShift >= 0 ? '↑' : '↓'} ${Math.abs(priceShift).toFixed(2)}</span>
-                </div>
-              )}
+              <input type="number" step="0.001" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 rounded-2xl px-6 py-5 text-sm font-mono dark:text-white outline-none focus:border-blue-500/50 transition-colors" />
             </div>
           </div>
-
-          {/* Tlačítko Execute nyní volá globální openMarketOrder */}
-          <button
-            onClick={() => openMarketOrder(symbol, orderType, currentPrice)}
-            className={`w-full py-5 rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] text-white shadow-2xl transition-all transform active:scale-95 ${orderType === 'buy' ? 'bg-emerald-500 shadow-emerald-500/20' : 'bg-rose-500 shadow-rose-500/20'}`}
-          >
+          <button onClick={() => openMarketOrder(symbol, orderType, currentPrice)} className={`w-full py-5 rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] text-white shadow-2xl transition-all transform active:scale-95 ${orderType === 'buy' ? 'bg-emerald-500 shadow-emerald-500/20' : 'bg-rose-500 shadow-rose-500/20'}`}>
              Execute {orderType}
           </button>
         </div>

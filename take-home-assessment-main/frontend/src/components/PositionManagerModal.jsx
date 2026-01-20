@@ -2,31 +2,31 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useTrading } from '../services/TradingContext';
 import { useRealTimeData } from '../services/useRealTimeData';
 
-const DeleteConfirmationModal = ({ isOpen, onClose, onConfirm, symbol, title = "Close Position?", desc = "" }) => {
+// --- UNIVERZÁLNÍ POTVRZOVACÍ MODAL ---
+const DeleteConfirmationModal = ({ isOpen, onClose, onConfirm, symbol, title, desc, btnText, isWarning = true }) => {
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-white dark:bg-slate-900 w-full max-w-xs rounded-[2rem] p-6 shadow-2xl border dark:border-slate-800 animate-in zoom-in duration-200">
-        <div className="w-12 h-12 bg-rose-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
-          <span className="text-rose-500 text-xl">⚠️</span>
+        <div className={`w-12 h-12 ${isWarning ? 'bg-rose-500/10' : 'bg-blue-500/10'} rounded-full flex items-center justify-center mx-auto mb-4`}>
+          <svg className={`w-6 h-6 ${isWarning ? 'text-rose-500' : 'text-blue-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
         </div>
         <h3 className="text-center text-sm font-black dark:text-white uppercase tracking-widest mb-2">{title}</h3>
-        <p className="text-center text-[10px] text-slate-400 font-bold uppercase tracking-tight mb-6">
-          {desc || `Are you sure you want to exit all ${symbol} holdings at market price?`}
-        </p>
+        <p className="text-center text-[10px] text-slate-400 font-bold uppercase tracking-tight mb-6 leading-relaxed">{desc}</p>
         <div className="flex flex-col gap-2">
-          <button onClick={onConfirm} className="w-full py-4 bg-rose-500 text-white rounded-xl font-black uppercase text-[9px] tracking-widest shadow-lg active:scale-95 transition-transform">
-            Confirm Order
+          <button onClick={onConfirm} className={`w-full py-4 ${isWarning ? 'bg-rose-500 shadow-rose-500/20' : 'bg-blue-600 shadow-blue-500/20'} text-white rounded-xl font-black uppercase text-[9px] tracking-widest shadow-lg active:scale-95 transition-transform`}>
+            {btnText}
           </button>
-          <button onClick={onClose} className="w-full py-3 text-[9px] font-black uppercase text-slate-400 tracking-widest">
-            Go Back
-          </button>
+          <button onClick={onClose} className="w-full py-3 text-[9px] font-black uppercase text-slate-400 tracking-widest hover:text-slate-600">Go Back</button>
         </div>
       </div>
     </div>
   );
 };
 
+// --- HLAVNÍ KOMPONENTA ---
 const PositionManagerModal = ({ isOpen, onClose, onConfirm, data }) => {
   const { closePosition, positions } = useTrading();
   const { stocks, crypto } = useRealTimeData();
@@ -38,7 +38,9 @@ const PositionManagerModal = ({ isOpen, onClose, onConfirm, data }) => {
 
   const [activeTab, setActiveTab] = useState('manage');
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
-  const [showPartialConfirm, setShowPartialConfirm] = useState(false); // NOVÝ STAV
+  const [showPartialConfirm, setShowPartialConfirm] = useState(false);
+  const [pendingOrder, setPendingOrder] = useState(null);
+
   const [tradeAmount, setTradeAmount] = useState(0);
   const [sliderVal, setSliderVal] = useState(0);
   const [addAmount, setAddAmount] = useState(0);
@@ -46,18 +48,14 @@ const PositionManagerModal = ({ isOpen, onClose, onConfirm, data }) => {
   const [tp, setTp] = useState('');
 
   useEffect(() => {
-    if (isOpen && data) {
-      const currentPos = positions.find(p => p.id === data.id || p.symbol === data.symbol);
-      if (!currentPos) { onClose(); return; }
-      if (!hasInitialized.current) {
-        setTradeAmount(0); setSliderVal(0); setAddAmount(0);
-        setSl(data.sl || ''); setTp(data.tp || '');
-        setActiveTab('manage'); setShowCancelConfirm(false);
-        setPosition({ x: window.innerWidth - 320, y: 100 });
-        hasInitialized.current = true;
-      }
-    } else { hasInitialized.current = false; }
-  }, [isOpen, data, positions, onClose]);
+    if (isOpen && data && !hasInitialized.current) {
+      const currentPos = positions.find(p => p.id === data.id);
+      setSl(currentPos?.sl || '');
+      setTp(currentPos?.tp || '');
+      setPosition({ x: data.initialX, y: data.initialY });
+      hasInitialized.current = true;
+    }
+  }, [isOpen, data, positions]);
 
   const liveItem = stocks?.find(s => s.symbol === data?.symbol) || crypto?.find(c => c.symbol === data?.symbol);
   const currentPrice = liveItem?.liveTicks?.length
@@ -89,7 +87,6 @@ const PositionManagerModal = ({ isOpen, onClose, onConfirm, data }) => {
   }, [isDragging]);
 
   const round3 = (num) => Math.round(num * 1000) / 1000;
-  const currentPL = (currentPrice - data.price) * (activeTab === 'manage' ? tradeAmount : 0);
   const buyQty = parseFloat(addAmount || 0);
   const newTotalQty = data.amount + buyQty;
   const newAvgPrice = ((data.price * data.amount) + (currentPrice * buyQty)) / newTotalQty;
@@ -98,7 +95,7 @@ const PositionManagerModal = ({ isOpen, onClose, onConfirm, data }) => {
   const calculateRRR = () => {
     const stopLoss = parseFloat(sl);
     const takeProfit = parseFloat(tp);
-    const entry = activeTab === 'add' ? newAvgPrice : parseFloat(data.price);
+    const entry = (activeTab === 'add' && buyQty > 0) ? newAvgPrice : parseFloat(data.price);
     if (!stopLoss || !takeProfit || isNaN(stopLoss) || isNaN(takeProfit)) return null;
     const risk = Math.abs(entry - stopLoss);
     const reward = Math.abs(takeProfit - entry);
@@ -111,42 +108,55 @@ const PositionManagerModal = ({ isOpen, onClose, onConfirm, data }) => {
 
   const handleSliderChange = (pct) => {
     const calculated = round3(data.amount * (pct / 100));
-    setSliderVal(pct);
-    setTradeAmount(calculated);
+    setSliderVal(pct); setTradeAmount(calculated);
   };
 
   const handleAmountInputChange = (val) => {
     let num = parseFloat(val) || 0;
     if (num > data.amount) num = data.amount;
-    const rounded = round3(num);
-    setTradeAmount(rounded);
-    if (data.amount > 0) setSliderVal((rounded / data.amount) * 100);
+    setTradeAmount(round3(num));
+    if (data.amount > 0) setSliderVal((round3(num) / data.amount) * 100);
   };
 
-  // --- LOGIKA POTVRZENÍ ---
   const handleMainConfirm = () => {
-    // Pokud prodáváme část (manage tab a tradeAmount > 0), ukaž varování
-    if (activeTab === 'manage' && tradeAmount > 0) {
+    const sellQty = parseFloat(tradeAmount || 0);
+    const buyQty = parseFloat(addAmount || 0);
+    const fullPayload = {
+      ...data,
+      price: currentPrice,
+      sl: sl !== '' ? parseFloat(sl) : null,
+      tp: tp !== '' ? parseFloat(tp) : null,
+      buyAmount: buyQty,
+      sellAmount: sellQty,
+      amount: activeTab === 'manage' ? sellQty : buyQty,
+      type: activeTab === 'manage' ? 'sell' : 'buy'
+    };
+    if (sellQty > 0) {
+      setPendingOrder(fullPayload);
       setShowPartialConfirm(true);
     } else {
-      onConfirm({ symbol: data.symbol, id: data.id, amount: activeTab === 'manage' ? tradeAmount : parseFloat(addAmount), price: currentPrice, type: activeTab === 'manage' ? 'sell' : 'buy', sl: sl ? parseFloat(sl) : null, tp: tp ? parseFloat(tp) : null });
+      onConfirm(fullPayload);
+      onClose();
     }
   };
 
   return (
     <>
-      <style>{`
-        input::-webkit-outer-spin-button,
-        input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-        input[type=number] { -moz-appearance: textfield; }
-      `}</style>
+      <style>{`input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; } input[type=number] { -moz-appearance: textfield; }`}</style>
 
-      <div className="fixed z-[200] pointer-events-none" style={{ left: position.x, top: position.y }}>
+      <div className="fixed z-[500] pointer-events-none" style={{ left: position.x, top: position.y }}>
         <div className={`bg-white dark:bg-slate-900 w-[280px] rounded-[2.5rem] p-6 shadow-2xl border dark:border-slate-800 pointer-events-auto transition-transform duration-200 animate-in fade-in zoom-in-95 ${isDragging ? 'scale-105 opacity-90 cursor-grabbing' : ''}`}>
-          <div onMouseDown={handleMouseDown} className="flex justify-between items-start mb-4 cursor-grab active:cursor-grabbing select-none">
+
+          {/* HEADER */}
+          <div onMouseDown={handleMouseDown} className="flex justify-between items-start mb-4 cursor-grab active:cursor-grabbing select-none text-left">
             <div>
-               <h2 className="text-xl font-black dark:text-white italic uppercase tracking-tighter leading-none">{data.symbol}</h2>
-               <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Live Manager</span>
+              <div className="flex items-center gap-2">
+                <span className="bg-blue-600 text-white text-[7px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-widest">
+                  UNIT #{data.displayIndex || data.tradeNumber}
+                </span>
+                <h2 className="text-xl font-black dark:text-white italic uppercase tracking-tighter leading-none">{data.symbol}</h2>
+              </div>
+              <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1 block">Position Manager</span>
             </div>
             <button onClick={onClose} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-slate-400">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -165,91 +175,70 @@ const PositionManagerModal = ({ isOpen, onClose, onConfirm, data }) => {
             <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl border dark:border-slate-800">
               <div className="flex justify-between items-center mb-1 text-left">
                 <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest italic">{activeTab === 'manage' ? 'Sell Qty' : 'Buy Amount'}</label>
-                <p className="text-[8px] text-slate-400 uppercase font-bold tracking-tighter">Market: ${currentPrice.toFixed(2)}</p>
+                <p className="text-[8px] text-slate-400 uppercase font-bold tracking-tighter">${currentPrice.toFixed(2)}</p>
               </div>
-
-              <input
-                type="number" step="0.001"
-                value={activeTab === 'manage' ? tradeAmount : addAmount}
-                onChange={(e) => activeTab === 'manage' ? handleAmountInputChange(e.target.value) : setAddAmount(e.target.value)}
-                className="w-full bg-transparent border-b-2 border-slate-200 dark:border-slate-800 py-1 text-xl font-mono dark:text-white outline-none focus:border-blue-500 transition-colors"
-                placeholder="0.000"
-              />
+              <input type="number" step="0.001" value={activeTab === 'manage' ? tradeAmount : addAmount} onChange={(e) => activeTab === 'manage' ? handleAmountInputChange(e.target.value) : setAddAmount(e.target.value)} className="w-full bg-transparent border-b-2 border-slate-200 dark:border-slate-800 py-1 text-xl font-mono dark:text-white outline-none focus:border-blue-500 transition-colors" placeholder="0.000" />
 
               {activeTab === 'manage' ? (
                 <div className="mt-3">
                   <input type="range" min="0" max="100" step="1" value={sliderVal} onChange={(e) => handleSliderChange(parseInt(e.target.value))} className="w-full h-1 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 mb-2" />
                   <div className="flex justify-between px-1">
                     {[0, 25, 50, 75, 100].map(pct => (
-                      <button key={pct} onClick={() => handleSliderChange(pct)} className="text-[7px] font-black text-slate-400 hover:text-blue-500">{pct}%</button>
+                      <button key={pct} onClick={() => handleSliderChange(pct)} className="text-[7px] font-black text-slate-400 hover:text-blue-500 transition-colors">{pct}%</button>
                     ))}
                   </div>
                 </div>
               ) : (
                 <div className="mt-4 flex justify-between items-end border-t dark:border-slate-800 pt-3 text-left">
                   <div className="flex flex-col">
-                    <span className="text-[7px] font-black text-amber-500 uppercase italic leading-none mb-1">Preview Shift</span>
-                    <span className={`text-[11px] font-mono font-black ${priceShift >= 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
-                      {priceShift >= 0 ? '↑' : '↓'} ${Math.abs(priceShift).toFixed(2)}
-                    </span>
+                    <span className="text-[7px] font-black text-amber-500 uppercase italic leading-none mb-1">Impact</span>
+                    <span className={`text-[11px] font-mono font-black ${priceShift >= 0 ? 'text-rose-500' : 'text-emerald-500'}`}>{priceShift >= 0 ? '↑' : '↓'} ${Math.abs(priceShift).toFixed(2)}</span>
                   </div>
                   <div className="text-right flex flex-col items-end">
-                    <span className="text-[7px] font-black text-slate-400 uppercase italic leading-none mb-1">New Average</span>
+                    <span className="text-[7px] font-black text-slate-400 uppercase italic leading-none mb-1">New Avg</span>
                     <span className="text-[11px] font-mono font-black text-amber-500">${newAvgPrice.toFixed(2)}</span>
                   </div>
                 </div>
               )}
-
-              {activeTab === 'manage' && (
-                <div className="mt-3 flex justify-between items-center pt-2 border-t dark:border-slate-800 text-left">
-                  <span className="text-[8px] font-black text-slate-400 uppercase">Est. P/L</span>
-                  <span className={`text-[10px] font-mono font-bold ${currentPL >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                     ${currentPL.toFixed(2)}
-                  </span>
-                </div>
-              )}
             </div>
 
-            <div className="space-y-2">
-              <div className="grid grid-cols-2 gap-2 text-left">
-                <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-2xl border dark:border-slate-800">
-                  <label className="text-[7px] font-black text-rose-500 uppercase block mb-1">Stop Loss</label>
-                  <input type="number" step="0.01" value={sl} onChange={e => setSl(e.target.value)} className="w-full bg-transparent font-mono text-[10px] text-rose-500 outline-none placeholder:text-rose-500/30" placeholder="0.00" />
-                </div>
-                <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-2xl border dark:border-slate-800">
-                  <label className="text-[7px] font-black text-emerald-500 uppercase block mb-1">Take Profit</label>
-                  <input type="number" step="0.01" value={tp} onChange={e => setTp(e.target.value)} className="w-full bg-transparent font-mono text-[10px] text-emerald-500 outline-none placeholder:text-emerald-500/30" placeholder="0.00" />
-                </div>
+            <div className="grid grid-cols-2 gap-2 text-left">
+              <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-2xl border dark:border-slate-800">
+                <label className="text-[7px] font-black text-rose-500 uppercase block mb-1">Stop Loss</label>
+                <input type="number" step="0.01" value={sl} onChange={e => setSl(e.target.value)} className="w-full bg-transparent font-mono text-[10px] text-rose-500 outline-none" placeholder="0.00" />
               </div>
+              <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-2xl border dark:border-slate-800">
+                <label className="text-[7px] font-black text-emerald-500 uppercase block mb-1">Take Profit</label>
+                <input type="number" step="0.01" value={tp} onChange={e => setTp(e.target.value)} className="w-full bg-transparent font-mono text-[10px] text-emerald-500 outline-none" placeholder="0.00" />
+              </div>
+            </div>
 
-              <div className="bg-slate-50 dark:bg-slate-950 px-4 py-2.5 rounded-2xl border dark:border-slate-800 flex justify-between items-center">
+            <div className="bg-slate-50 dark:bg-slate-950 px-4 py-2.5 rounded-2xl border dark:border-slate-800 flex justify-between items-center">
+              <div className="flex flex-col text-left">
                 <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest italic leading-none">Risk : Reward</span>
-                <div className="flex items-center font-mono font-black text-[11px] gap-1 leading-none">
-                  {rrrValue !== null ? (
-                    rrrValue === "INVALID" ? (
-                      <span className="text-rose-500 text-[9px] uppercase tracking-tighter animate-pulse">Invalid Plan</span>
-                    ) : (
-                      <><span className="text-slate-400 font-bold">1</span><span className="text-slate-400 text-[9px]">:</span><span className={rrrColor}>{rrrValue}</span></>
-                    )
+                {activeTab === 'add' && buyQty > 0 && (
+                  <span className="text-[6px] font-bold text-amber-500 uppercase mt-1">Calculated from New Avg</span>
+                )}
+              </div>
+              <div className="flex items-center font-mono font-black text-[11px] gap-1 leading-none">
+                {rrrValue !== null ? (
+                  rrrValue === "INVALID" ? (
+                    <span className="text-rose-500 text-[9px] uppercase tracking-tighter animate-pulse">Invalid Plan</span>
                   ) : (
-                    <span className="text-slate-500 text-[9px] uppercase tracking-tighter font-bold">Set SL & TP</span>
-                  )}
-                </div>
+                    <><span className="text-slate-400 font-bold">1</span><span className="text-slate-400 text-[9px]">:</span><span className={rrrColor}>{rrrValue}</span></>
+                  )
+                ) : (
+                  <span className="text-slate-500 text-[9px] uppercase tracking-tighter font-bold">Set SL & TP</span>
+                )}
               </div>
             </div>
 
-            <div className="flex flex-col gap-2">
-              <button
-                onClick={handleMainConfirm}
-                className={`w-full py-4 rounded-xl font-black uppercase text-[9px] tracking-[0.2em] text-white shadow-lg active:scale-95 transition-all ${activeTab === 'manage' ? 'bg-blue-600 shadow-blue-500/20' : 'bg-emerald-500 shadow-emerald-500/20'}`}
-              >
+            <div className="flex flex-col gap-2 pt-2">
+              <button onClick={handleMainConfirm} className={`w-full py-4 rounded-xl font-black uppercase text-[9px] tracking-[0.2em] text-white shadow-lg active:scale-95 transition-all ${activeTab === 'manage' ? 'bg-blue-600 shadow-blue-500/20' : 'bg-emerald-500 shadow-emerald-500/20'}`}>
                 Confirm Changes
               </button>
               <button onClick={() => setShowCancelConfirm(true)} className="w-full py-3 rounded-xl border border-rose-500/20 text-rose-500 font-black uppercase text-[8px] tracking-widest hover:bg-rose-500/5 transition-all active:scale-95">
                 Market Exit (Full)
-              </button>
-              <button onClick={onClose} className="w-full py-2 text-[8px] font-black uppercase text-slate-400 tracking-[0.2em] hover:text-slate-600 mt-0.5">
-                Cancel / Close
               </button>
             </div>
           </div>
@@ -257,25 +246,29 @@ const PositionManagerModal = ({ isOpen, onClose, onConfirm, data }) => {
       </div>
 
       <DeleteConfirmationModal
-        isOpen={showCancelConfirm}
+        isOpen={showPartialConfirm}
         symbol={data.symbol}
-        onClose={() => setShowCancelConfirm(false)}
+        title="Confirm Order?"
+        desc={`Confirm selling ${tradeAmount} units and applying all other changes (SL/TP, Buys) for Trade #${data.displayIndex || data.tradeNumber}.`}
+        btnText="Execute All Changes"
+        isWarning={false}
+        onClose={() => { setShowPartialConfirm(false); setPendingOrder(null); }}
         onConfirm={() => {
-          closePosition(data.id || data.symbol, currentPrice, 'FULL_CLOSE_MANUAL');
-          setShowCancelConfirm(false);
-          onClose();
+          if (pendingOrder) onConfirm(pendingOrder);
+          setShowPartialConfirm(false); setPendingOrder(null); onClose();
         }}
       />
 
       <DeleteConfirmationModal
-        isOpen={showPartialConfirm}
+        isOpen={showCancelConfirm}
         symbol={data.symbol}
-        title="Partial Close?"
-        desc={`Are you sure you want to sell ${tradeAmount} units of ${data.symbol} at market price?`}
-        onClose={() => setShowPartialConfirm(false)}
+        title="Market Exit?"
+        desc="Are you sure you want to close this entire unit at market price? This is irreversible."
+        btnText="Exit Position"
+        onClose={() => setShowCancelConfirm(false)}
         onConfirm={() => {
-          onConfirm({ symbol: data.symbol, id: data.id, amount: tradeAmount, price: currentPrice, type: 'sell', sl: sl ? parseFloat(sl) : null, tp: tp ? parseFloat(tp) : null });
-          setShowPartialConfirm(false);
+          closePosition(data.id, currentPrice, 'FULL_CLOSE_MANUAL');
+          setShowCancelConfirm(false); onClose();
         }}
       />
     </>
