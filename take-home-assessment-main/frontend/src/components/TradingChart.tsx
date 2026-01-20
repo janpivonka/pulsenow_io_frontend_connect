@@ -7,6 +7,25 @@ interface TradingChartProps {
   symbol: string;
 }
 
+// Pomocná funkce pro konzistentní barvy pozic
+const getPositionColor = (id: string) => {
+  const colors = [
+    '#3b82f6', // blue
+    '#8b5cf6', // violet
+    '#ec4899', // pink
+    '#f59e0b', // amber
+    '#06b6d4', // cyan
+    '#10b981', // emerald
+    '#6366f1', // indigo
+    '#f43f5e', // rose
+  ];
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return colors[Math.abs(hash) % colors.length];
+};
+
 export default function TradingChart({ symbol }: TradingChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -18,9 +37,10 @@ export default function TradingChart({ symbol }: TradingChartProps) {
   const [amount, setAmount] = useState('1.000');
   const [orderType, setOrderType] = useState<'buy' | 'sell'>('buy');
   const [isExpanded, setIsExpanded] = useState(true);
+  const [showLines, setShowLines] = useState(true); // Nový stav pro viditelnost linií
 
   const { stocks, crypto } = useRealTimeData();
-  const { positions, openMarketOrder, openPositionManager } = useTrading();
+  const { positions, openMarketOrder, openPositionManager, openAdvancedManager } = useTrading();
 
   const item = stocks?.find(s => s.symbol === symbol) || crypto?.find(c => c.symbol === symbol);
   const roundTo3 = (val: number) => Math.round(val * 1000) / 1000;
@@ -43,43 +63,72 @@ export default function TradingChart({ symbol }: TradingChartProps) {
   const inputAmountNum = parseFloat(amount) || 0;
   const isAddingToPosition = totalHoldings > 0 && orderType === 'buy';
   let newAveragePrice = avgEntryPrice;
-  let priceShift = 0;
 
   if (isAddingToPosition && inputAmountNum > 0) {
     newAveragePrice = ((avgEntryPrice * totalHoldings) + (currentPrice * inputAmountNum)) / (totalHoldings + inputAmountNum);
-    priceShift = newAveragePrice - avgEntryPrice;
   }
 
+  // --- VYKRESLOVÁNÍ LINÍ V GRAFU ---
   const updateChartLines = () => {
     if (!seriesRef.current) return;
     const series = seriesRef.current;
+
+    // Vždy nejdřív vyčistit staré linie
     activeLinesRef.current.forEach(line => series.removePriceLine(line));
     activeLinesRef.current = [];
+
     if (previewLineRef.current) {
       series.removePriceLine(previewLineRef.current);
       previewLineRef.current = null;
     }
 
+    // Pokud je zobrazení vypnuté, končíme zde (linie zůstanou smazané)
+    if (!showLines) return;
+
     symbolPositions.forEach((pos, index) => {
-      const color = '#3b82f6';
+      const unitLabel = `U${index + 1}`;
+      const posColor = getPositionColor(pos.id);
+
+      // 1. Entry Line
       activeLinesRef.current.push(series.createPriceLine({
-        price: pos.price, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `T${index + 1}`
+        price: pos.price,
+        color: posColor,
+        lineWidth: 2,
+        lineStyle: 0,
+        axisLabelVisible: true,
+        title: `${unitLabel} ENTRY`
       }));
-      if (pos.sl) {
+
+      // 2. SL/TP hladiny
+      const displayLevels = pos.levels && pos.levels.length > 0
+        ? pos.levels
+        : [
+            ...(pos.sl ? [{ price: pos.sl, type: 'SL', displayAmount: 100 }] : []),
+            ...(pos.tp ? [{ price: pos.tp, type: 'TP', displayAmount: 100 }] : [])
+          ];
+
+      let tpCounter = 0;
+      let slCounter = 0;
+
+      displayLevels.forEach((l: any) => {
+        const isTP = l.type === 'TP';
+        if (isTP) tpCounter++; else slCounter++;
+        const subIndex = isTP ? tpCounter : slCounter;
+
         activeLinesRef.current.push(series.createPriceLine({
-          price: pos.sl, color: '#ef4444', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: `SL${index + 1}`
+          price: l.price,
+          color: isTP ? '#10b981' : '#ef4444',
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: `${unitLabel} ${l.type}${subIndex} (${l.displayAmount}%)`
         }));
-      }
-      if (pos.tp) {
-        activeLinesRef.current.push(series.createPriceLine({
-          price: pos.tp, color: '#10b981', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: `TP${index + 1}`
-        }));
-      }
+      });
     });
 
     if (isAddingToPosition && inputAmountNum > 0) {
       previewLineRef.current = series.createPriceLine({
-        price: newAveragePrice, color: '#fbbf24', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: 'PREVIEW'
+        price: newAveragePrice, color: '#fbbf24', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: 'PREVIEW AVG'
       });
     }
   };
@@ -114,12 +163,14 @@ export default function TradingChart({ symbol }: TradingChartProps) {
       }
     }
     updateChartLines();
-  }, [item, timeframe, positions, currentPrice, amount, orderType]);
+  }, [item, timeframe, positions, currentPrice, amount, orderType, showLines]); // Přidáno showLines do závislostí
 
   return (
     <div className="w-full space-y-6 text-left">
       <div className="flex flex-col xl:flex-row gap-8">
         <div className="flex-grow space-y-4">
+
+          {/* HEADER SECTION */}
           <div className="flex items-center justify-between mb-2 ml-2">
             <div className="flex items-center gap-4">
               <span className="text-2xl font-black italic dark:text-white uppercase tracking-tighter">{symbol}</span>
@@ -146,54 +197,105 @@ export default function TradingChart({ symbol }: TradingChartProps) {
             )}
           </div>
 
+          {/* POSITIONS LIST */}
           {isExpanded && symbolPositions.length > 0 && (
-            <div className="space-y-2 max-h-60 overflow-y-auto pr-2 custom-scrollbar animate-in fade-in slide-in-from-top-4 duration-300">
+            <div className="space-y-2 max-h-64 overflow-y-auto pr-2 custom-scrollbar animate-in fade-in slide-in-from-top-4 duration-300">
               {symbolPositions.map((pos, index) => {
                 const pnl = pos.amount * (currentPrice - pos.price);
+                const posColor = getPositionColor(pos.id);
+
+                const combinedLevels = pos.levels && pos.levels.length > 0
+                  ? pos.levels
+                  : [
+                      ...(pos.sl ? [{ id: 'sl', price: pos.sl, type: 'SL' }] : []),
+                      ...(pos.tp ? [{ id: 'tp', price: pos.tp, type: 'TP' }] : [])
+                    ];
+
+                const nextTargets = [...combinedLevels]
+                  .sort((a, b) => Math.abs(a.price - currentPrice) - Math.abs(b.price - currentPrice))
+                  .slice(0, 2);
+
                 return (
-                  <div key={pos.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex items-center justify-between shadow-sm border-l-4 border-l-blue-500 hover:border-l-blue-400 transition-all">
-                    <div className="flex items-center gap-6">
-                      <div className="flex flex-col min-w-[70px]">
-                        <span className="text-[7px] font-black text-blue-500 uppercase tracking-widest">Trade #{index + 1}</span>
+                  <div key={pos.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[1.8rem] p-4 flex items-center justify-between shadow-sm border-l-4 transition-all" style={{ borderLeftColor: posColor }}>
+                    <div className="flex items-center gap-5">
+                      <div className="flex flex-col min-w-[65px]">
+                        <span className="text-[7px] font-black uppercase tracking-widest" style={{ color: posColor }}>Unit #{index + 1}</span>
                         <span className="text-sm font-black dark:text-white italic leading-none mt-1">
-                          {roundTo3(pos.amount)} <span className="text-[10px] opacity-50 not-italic">{symbol}</span>
+                          {roundTo3(pos.amount)} <span className="text-[9px] opacity-40 not-italic uppercase">{symbol}</span>
                         </span>
                       </div>
-                      <div className="flex flex-col border-l dark:border-slate-800 pl-6 min-w-[90px]">
-                        <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Profit/Loss</span>
+                      <div className="flex flex-col border-l dark:border-slate-800 pl-5 min-w-[85px]">
+                        <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest">P/L</span>
                         <span className={`text-sm font-black italic leading-none mt-1 ${pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
                           {pnl >= 0 ? '+' : ''}${Math.abs(pnl).toFixed(2)}
                         </span>
                       </div>
-                      <div className="flex flex-col border-l dark:border-slate-800 pl-6">
+
+                      <div className="flex flex-col border-l dark:border-slate-800 pl-5 min-w-[100px]">
+                        <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Next Targets</span>
+                        <div className="flex gap-1 mt-1">
+                          {nextTargets.length > 0 ? (
+                            nextTargets.map((l: any, i: number) => (
+                              <span key={i} className={`text-[8px] font-black px-1.5 py-0.5 rounded-md ${l.type === 'TP' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
+                                ${l.price.toFixed(2)}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-[8px] text-slate-400 font-bold uppercase tracking-tight italic">No Plan</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col border-l dark:border-slate-800 pl-5">
                         <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Entry</span>
                         <span className="text-sm font-mono font-bold dark:text-white leading-none mt-1">${pos.price.toFixed(2)}</span>
                       </div>
                     </div>
-                    <button
-                      onClick={() => openPositionManager({ ...pos, displayIndex: index + 1 }, currentPrice)}
-                      className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-blue-600 dark:hover:bg-blue-600 text-slate-500 dark:text-slate-400 hover:text-white rounded-xl text-[8px] font-black uppercase tracking-widest transition-all shadow-sm"
-                    >
-                      Manage
-                    </button>
+
+                    <div className="flex gap-1.5 bg-slate-50 dark:bg-slate-950 p-1.5 rounded-2xl border dark:border-slate-800">
+                      <button onClick={() => openPositionManager({ ...pos, displayIndex: index + 1, initialTab: 'add' }, currentPrice)} className="px-3 py-2 bg-emerald-500/10 hover:bg-emerald-500 text-emerald-500 hover:text-white rounded-xl text-[7px] font-black uppercase tracking-widest transition-all">Add</button>
+                      <button onClick={() => openAdvancedManager({ ...pos, displayIndex: index + 1 }, currentPrice)} className="px-3 py-2 bg-blue-600/10 hover:bg-blue-600 text-blue-600 hover:text-white rounded-xl text-[7px] font-black uppercase tracking-widest transition-all">Manage</button>
+                      <button onClick={() => openPositionManager({ ...pos, displayIndex: index + 1, initialTab: 'close' }, currentPrice)} className="px-3 py-2 bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white rounded-xl text-[7px] font-black uppercase tracking-widest transition-all">Close</button>
+                    </div>
                   </div>
                 );
               })}
             </div>
           )}
 
+          {/* CHART AREA */}
           <div className="relative group">
-            <div className="absolute top-4 left-4 z-10 flex bg-white/80 dark:bg-slate-900/80 backdrop-blur-md p-1 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xl">
-              {['1s', '1d'].map(tf => (
-                <button key={tf} onClick={() => setTimeframe(tf)} className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase transition-all ${timeframe === tf ? 'bg-blue-500 text-white shadow-lg' : 'text-slate-500 dark:text-slate-400'}`}>
-                  {tf}
-                </button>
-              ))}
+            <div className="absolute top-4 left-4 z-10 flex gap-2">
+              {/* TIMEFRAME SELECTOR */}
+              <div className="flex bg-white/80 dark:bg-slate-900/80 backdrop-blur-md p-1 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xl">
+                {['1s', '1d'].map(tf => (
+                  <button key={tf} onClick={() => setTimeframe(tf)} className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase transition-all ${timeframe === tf ? 'bg-blue-500 text-white shadow-lg' : 'text-slate-500 dark:text-slate-400'}`}>
+                    {tf}
+                  </button>
+                ))}
+              </div>
+
+              {/* TOGGLE LINES BUTTON */}
+              <button
+                onClick={() => setShowLines(!showLines)}
+                className={`flex items-center gap-2 px-3 py-1 rounded-xl text-[9px] font-black uppercase transition-all backdrop-blur-md border shadow-xl ${showLines ? 'bg-blue-500 text-white border-blue-400' : 'bg-white/80 dark:bg-slate-900/80 text-slate-500 border-slate-200 dark:border-slate-800'}`}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  {showLines ? (
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  ) : (
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.542-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.888 9.888L3 3m18 18l-6.888-6.888" />
+                  )}
+                </svg>
+                {showLines ? 'Lines On' : 'Lines Off'}
+              </button>
             </div>
+
             <div ref={containerRef} className="w-full h-[400px] bg-white dark:bg-slate-900/50 rounded-[2.5rem] border border-slate-100 dark:border-slate-800/50 shadow-inner" />
           </div>
         </div>
 
+        {/* SIDEBAR EXECUTION */}
         <div className="w-full xl:w-80 bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-xl self-start sticky top-4">
           <div className="grid grid-cols-2 gap-2 p-1.5 bg-slate-100 dark:bg-slate-950 rounded-2xl mb-8 border dark:border-slate-800">
             <button onClick={() => setOrderType('buy')} className={`py-4 rounded-xl text-[10px] font-black uppercase transition-all ${orderType === 'buy' ? 'bg-emerald-500 text-white shadow-lg' : 'text-slate-400'}`}>Buy</button>
