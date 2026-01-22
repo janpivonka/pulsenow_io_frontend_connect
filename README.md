@@ -96,13 +96,13 @@ public/
 
 ## 📸 Screenshots
 
-![Dashboard](public/images/screenshots/dashboard-page-light.png)
-![Market Chart Modals](public/images/screenshots/chart-modals-dark.png)
-![Market Page](public/images/screenshots/market-page-light.png)
-![News Page](public/images/screenshots/news-page-light.png)
-![Portfolio Active Holding](public/images/screenshots/portfolio-page-active-holding-light.png)
-![Portfolio Trade History](public/images/screenshots/portfolio-page-trade-history-dark.png)
-![Alerts Page](public/images/screenshots/alerts-page-dark.png)
+![Dashboard](take-home-assessment-main/frontend/src/public/images/screenshots/dashboard-page-light.png)
+![Market Chart Modals](take-home-assessment-main/frontend/src/public/images/screenshots/chart-modals-dark.png)
+![Market Page](take-home-assessment-main/frontend/src/public/images/screenshots/market-page-light.png)
+![News Page](take-home-assessment-main/frontend/src/public/images/screenshots/news-page-light.png)
+![Portfolio Active Holding](take-home-assessment-main/frontend/src/public/images/screenshots/portfolio-page-active-holding-light.png)
+![Portfolio Trade History](take-home-assessment-main/frontend/src/public/images/screenshots/portfolio-page-trade-history-dark.png)
+![Alerts Page](take-home-assessment-main/frontend/src/public/images/screenshots/alerts-page-dark.png)
 
 ## ⚙️ Local Development
 
