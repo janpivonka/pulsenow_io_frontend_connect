@@ -6,6 +6,8 @@
 
 ## 📝 Project Context and Goal
 
+This project was originally for a company with a fully functional backend API. My task was simply to create a minimal frontend interface for the **Dashboard** and **Assets** pages. However, because I am deeply involved with trading as a personal passion and experience, I expanded the frontend considerably, implementing real-time trading visualization, portfolio calculations, and interactive charts. The development was concluded in its current state, reflecting this extended effort.
+
 PulseNow is a sophisticated trading terminal designed for real-time monitoring and trading of assets (stocks, crypto). The main goal was to create a robust frontend architecture capable of handling high-frequency updates, complex portfolio calculations, and interactive visualization of trading orders directly on the chart.
 
 **Note:** Currently, trading logic supports only **buy/long positions**. Future improvements should include **short selling logic**.
@@ -80,7 +82,6 @@ The frontend is divided into the following route-level pages:
 
 ## 📂 Project Structure
 
-```text
 src/
 ├─ components/      # UI modules (TradingChart, Modals, MetaMaskButton)
 ├─ pages/           # Route-level pages (Dashboard, Alerts, Assets, Portfolio, News)
@@ -91,8 +92,7 @@ src/
 public/
 ├─ icons/           # Logos and icons
 └─ images/
-    └─ screenshots/ # Screenshots for README and documentation
-```
+└─ screenshots/ # Screenshots for README and documentation
 
 ## 📸 Screenshots
 
@@ -107,20 +107,14 @@ public/
 ## ⚙️ Local Development
 
 Frontend:
-
-```bash
 cd frontend
 npm install
 npm run dev
-```
 
 Backend:
-
-```bash
 cd backend
 npm install
 npm run dev
-```
 
 ## 📈 Roadmap and Future Improvements
 
