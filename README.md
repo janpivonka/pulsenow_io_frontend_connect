@@ -96,13 +96,26 @@ public/
 
 ## 📸 Screenshots
 
+## Dashboard Page - Light
 ![Dashboard](take-home-assessment-main/frontend/src/public/images/screenshots/dashboard-page-light.png)
-![Market Chart Modals](take-home-assessment-main/frontend/src/public/images/screenshots/chart-modals-dark.png)
+
+## Market Page - Light
 ![Market Page](take-home-assessment-main/frontend/src/public/images/screenshots/market-page-light.png)
+
+## News Page - Light
 ![News Page](take-home-assessment-main/frontend/src/public/images/screenshots/news-page-light.png)
-![Portfolio Active Holding](take-home-assessment-main/frontend/src/public/images/screenshots/portfolio-page-active-holding-light.png)
-![Portfolio Trade History](take-home-assessment-main/frontend/src/public/images/screenshots/portfolio-page-trade-history-dark.png)
+
+## Alerts page - Dark
 ![Alerts Page](take-home-assessment-main/frontend/src/public/images/screenshots/alerts-page-dark.png)
+
+## Portfolio Page - Active Holdings Part - Light
+![Portfolio Active Holding](take-home-assessment-main/frontend/src/public/images/screenshots/portfolio-page-active-holding-light.png)
+
+## Portfolio Page - Trade History Part - Dark
+![Portfolio Trade History](take-home-assessment-main/frontend/src/public/images/screenshots/portfolio-page-trade-history-dark.png)
+
+## Chart Modals - Dark
+![Market Chart Modals](take-home-assessment-main/frontend/src/public/images/screenshots/chart-modals-dark.png)
 
 ## ⚙️ Local Development
 
