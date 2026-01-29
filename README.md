@@ -24,7 +24,7 @@ The application evolved into a **complex trading terminal frontend**, focused on
 ## 🚀 Live Demo
 
 **Frontend (Vercel):**
-👉 [https://pulsenow-io-frontend-connect-2r0wyxsml-jan-pivonkas-projects.vercel.app/](https://pulsenow-io-frontend-connect-2r0wyxsml-jan-pivonkas-projects.vercel.app/)
+👉 [https://pulsenow-io-frontend-connect.vercel.app//](https://pulsenow-io-frontend-connect.vercel.app//)
 
 **Backend:**
 ❌ Not required – the application uses **local mock data** for all market feeds and trading operations.
