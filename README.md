@@ -6,82 +6,130 @@
 
 ## 📝 Project Context and Goal
 
-This project was originally for a company with a fully functional backend API. My task was simply to create a minimal frontend interface for the **Dashboard** and **Assets** pages. However, because I am deeply involved with trading as a personal passion and experience, I expanded the frontend considerably, implementing real-time trading visualization, portfolio calculations, and interactive charts. The development was concluded in its current state, reflecting this extended effort.
+PulseNow is an **advanced frontend trading platform** designed for real-time monitoring and simulated trading of financial assets (stocks and cryptocurrencies).
 
-PulseNow is a sophisticated trading terminal designed for real-time monitoring and trading of assets (stocks, crypto). The main goal was to create a robust frontend architecture capable of handling high-frequency updates, complex portfolio calculations, and interactive visualization of trading orders directly on the chart.
+The project was originally started as a **frontend assignment** for a company that provided a fully functional backend API. The initial task was limited to implementing basic **Dashboard** and **Assets** pages. However, due to my long-term involvement in trading, I significantly expanded the scope of the frontend beyond the original requirements.
 
-**Note:** Currently, trading logic supports only **buy/long positions**. Future improvements should include **short selling logic**.
+The application evolved into a **complex trading terminal frontend**, focused on:
+
+* real-time market visualization,
+* high-frequency state updates,
+* advanced portfolio and P/L calculations,
+* and interactive chart-based order management.
+
+> **Important note:** The application currently runs **entirely on mocked market and trading data**. The original backend (Railway) is no longer required for the application to function.
+
+---
 
 ## 🚀 Live Demo
 
-Frontend (Vercel): 👉 [https://pulsenow-io-frontend-connect-2r0wyxsml-jan-pivonkas-projects.vercel.app/](https://pulsenow-io-frontend-connect-2r0wyxsml-jan-pivonkas-projects.vercel.app/)
-Backend API (Railway): 👉 [https://pulsenowiofrontendconnect-production.up.railway.app/](https://pulsenowiofrontendconnect-production.up.railway.app/)
+**Frontend (Vercel):**
+👉 [https://pulsenow-io-frontend-connect-2r0wyxsml-jan-pivonkas-projects.vercel.app/](https://pulsenow-io-frontend-connect-2r0wyxsml-jan-pivonkas-projects.vercel.app/)
+
+**Backend:**
+❌ Not required – the application uses **local mock data** for all market feeds and trading operations.
+
+---
 
 ## 🏗️ Application Architecture
 
 ### 🔹 Frontend
 
-The frontend is built with **React 18** with strong separation between logic and UI.
+The application is built with **React 18** and designed with a strict separation between **business logic** and **UI rendering**.
 
-Core principles:
+Core architectural principles:
 
 * **Feature-first component structure**
 * **Application logic extracted into custom hooks** (`useRealTimeData`, `useTrading`, `useTradingLogic`)
-* **UI components focused on rendering only**
-* **Predictable state transitions** even for complex operations like live portfolio updates and order management
-* **Dynamic TradingChart** with multi-layer rendering of entry points, take-profits, stop-losses, and limit orders
+* **UI components focused purely on rendering**
+* **Predictable state transitions**, even under high-frequency updates
+* **Dynamic TradingChart** with multi-layer rendering:
 
-### 🔹 Pages
+  * entries
+  * take-profits (TP)
+  * stop-losses (SL)
+  * limit orders
+
+---
+
+## 🗂️ Pages
 
 The frontend is divided into the following route-level pages:
 
-* **Dashboard:** Portfolio overview, performance tracking, market heatmap
-* **Assets:** Detailed asset explorer, trending assets, realized/unrealized P/L
-* **Portfolio:** Active units, trade history, detailed position management
-* **News:** Market news feed (static or dynamic)
-* **Alerts:** Real-time alerts feed with impact scoring and filtering
+* **Dashboard** – portfolio overview, performance tracking, market heatmap
+* **Assets** – asset explorer, trending instruments, realized / unrealized P&L
+* **Portfolio** – active units, trade history, detailed position management
+* **News** – market news feed (static / mock-driven)
+* **Alerts** – real-time alerts feed with scoring and filtering
 
-### 🔹 Components
+---
 
-* **TradingChart.tsx:** The core charting component using Lightweight Charts, rendering:
+## 🧩 Key Components
 
-  * Units / positions with dynamic P/L
-  * Entry, TP, SL, limit orders
-  * Preview average line for adding positions
-* **Modals:** AdvancedPositionModal, MarketOrderModal, PositionManagerModal, DeleteConfirmationModal, TradeSuccessModal
-* **Other UI modules:** Layout, ThemeToggle, MetaMaskButton, ScrollToTop, PageHeader, SearchInput
+* **TradingChart.tsx** – core visualization layer using *Lightweight Charts*, rendering:
 
-### 🔹 Services
+  * individual units with dynamic P/L
+  * entry, TP, SL, and limit orders
+  * preview average price line when scaling into positions
 
-* **TradingContext:** Global state for positions, pending orders, and execution logic
-* **useRealTimeData:** Hook for live feed of stocks and crypto
-* **useTradingLogic:** Core calculations for floating P/L, average price, and preview lines
+* **Modals** – advanced trading workflows:
+
+  * `AdvancedPositionModal`
+  * `MarketOrderModal`
+  * `PositionManagerModal`
+  * `DeleteConfirmationModal`
+  * `TradeSuccessModal`
+
+* **Shared UI modules** – Layout, ThemeToggle, MetaMaskButton, PageHeader, SearchInput
+
+---
+
+## 🔌 State & Services
+
+* **TradingContext** – global state for positions, pending orders, and execution logic
+* **useRealTimeData** – simulated live feed for stocks and crypto
+* **useTradingLogic** – core calculations:
+
+  * floating P/L
+  * average price
+  * preview execution lines
+
+---
 
 ## ✨ Key Features
 
-* **Real-Time Portfolio Updates:** Floating P/L recalculated for each tick
-* **Dynamic Average Price Calculation:** Preview line on chart when adding to positions
-* **Order Management:** Edit/Cancel limit orders directly from chart UI
-* **Unit Tracking:** Each buy is tracked as a unique unit with individual P/L
-* **Alerts Feed:** Bullish/Bearish scoring and multi-layer filtering
-* **Responsive Layout:** Dark/light mode, sticky sidebars, mobile-friendly
+* **Real-Time Portfolio Updates** – floating P/L recalculated on every tick
+* **Dynamic Average Price Calculation** – visualized directly on the chart
+* **Order Management** – edit / cancel limit orders from the chart UI
+* **Unit-Based Tracking** – each buy tracked as an individual unit
+* **Alerts Feed** – bullish / bearish scoring with multi-layer filters
+* **Responsive Layout** – dark / light mode, sticky sidebars, mobile-friendly layout
+
+---
 
 ## ⚠️ Current Limitations
 
-* Trading currently only supports **buy/long positions**
-* Backend persistence is functional but could be expanded with full user authentication
-* Short-selling logic and multi-user collaboration not implemented yet
+* Trading supports **buy / long positions only**
+* No backend persistence (state is reset on refresh)
+* Authentication and multi-user features are not implemented
+
+These limitations are **intentional** and reflect the project’s focus on **frontend architecture and trading logic**, not backend infrastructure.
+
+---
 
 ## 🛠️ Tech Stack
 
-* **Frontend:** React 18, JavaScript / TypeScript (TradingChart)
-* **State Management:** Context API (TradingContext, ThemeContext)
-* **Visualization:** Lightweight Charts (financial chart), Recharts (analytics)
-* **Styling:** Custom CSS + Tailwind
-* **Infrastructure:** Vercel (frontend), Railway (backend), PostgreSQL (database)
+* **Frontend:** React 18, JavaScript / TypeScript
+* **State Management:** Context API (`TradingContext`, `ThemeContext`)
+* **Visualization:** Lightweight Charts (price charts), Recharts (analytics)
+* **Styling:** Tailwind CSS + custom CSS
+* **Infrastructure:** Vercel (static frontend hosting)
+
+---
 
 ## 📂 Project Structure
 
+```text
 src/
 ├─ components/      # UI modules (TradingChart, Modals, MetaMaskButton)
 ├─ pages/           # Route-level pages (Dashboard, Alerts, Assets, Portfolio, News)
@@ -92,53 +140,66 @@ src/
 public/
 ├─ icons/           # Logos and icons
 └─ images/
-└─ screenshots/ # Screenshots for README and documentation
+   └─ screenshots/  # Screenshots for README and documentation
+```
+
+---
 
 ## 📸 Screenshots
 
-## Dashboard Page - Light
+### Dashboard – Light
+
 ![Dashboard](take-home-assessment-main/frontend/src/public/images/screenshots/dashboard-page-light.png)
 
-## Market Page - Light
+### Market – Light
+
 ![Market Page](take-home-assessment-main/frontend/src/public/images/screenshots/market-page-light.png)
 
-## News Page - Light
+### News – Light
+
 ![News Page](take-home-assessment-main/frontend/src/public/images/screenshots/news-page-light.png)
 
-## Alerts page - Dark
+### Alerts – Dark
+
 ![Alerts Page](take-home-assessment-main/frontend/src/public/images/screenshots/alerts-page-dark.png)
 
-## Portfolio Page - Active Holdings Part - Light
+### Portfolio – Active Holdings (Light)
+
 ![Portfolio Active Holding](take-home-assessment-main/frontend/src/public/images/screenshots/portfolio-page-active-holding-light.png)
 
-## Portfolio Page - Trade History Part - Dark
+### Portfolio – Trade History (Dark)
+
 ![Portfolio Trade History](take-home-assessment-main/frontend/src/public/images/screenshots/portfolio-page-trade-history-dark.png)
 
-## Chart Modals - Dark
+### Chart Modals – Dark
+
 ![Market Chart Modals](take-home-assessment-main/frontend/src/public/images/screenshots/chart-modals-dark.png)
+
+---
 
 ## ⚙️ Local Development
 
-Frontend:
-cd frontend
+```bash
 npm install
 npm run dev
+```
 
-Backend:
-cd backend
-npm install
-npm run dev
+The application runs **fully offline using mocked data**. No backend or API keys are required.
+
+---
 
 ## 📈 Roadmap and Future Improvements
 
-* **Short-selling logic:** Enable trading in short positions
-* **Advanced Analytics:** Add RSI, Moving Averages, and other technical indicators
-* **Database Integration:** Store user watchlists, positions, and settings
-* **Authentication / Authorization:** Multi-user roles (admin, standard, read-only)
-* **Collaborative Editing:** Multi-user support for portfolio management
-* **Optimistic UI Updates:** Instant state updates with server confirmation
+* **Short-selling logic** – enable short positions
+* **Advanced analytics** – RSI, moving averages, indicators
+* **Backend integration** – persistence of portfolios and orders
+* **Authentication / authorization** – multi-user roles
+* **Collaborative trading views** – shared portfolios
+* **Optimistic UI updates** with server reconciliation
+
+---
 
 ## 👤 Author
 
-Peony 🌸
+**Peony 🌸**
 GitHub: [https://github.com/peony](https://github.com/peony)
